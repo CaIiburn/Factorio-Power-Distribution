@@ -1,0 +1,9 @@
+{
+  "name": "pylon-transformers",
+  "version": "0.1.0",
+  "title": "Pylon Transformers",
+  "author": "0x1337caliburn",
+  "factorio_version": "2.1",
+  "dependencies": ["base >= 2.0.0"],
+  "description": "One-directional step-up / step-down transformers with idle, conversion and distance-based line losses. Link a generating network to a consuming network through a pylon line."
+}
