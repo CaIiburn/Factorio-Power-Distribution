@@ -76,3 +76,4 @@ Buffers are sized to carry a transformer through one update interval with a 2x s
 - `control.lua`: runtime logic
 - `locale/en/`: text
 - `graphics/`: generated placeholder graphics
+- `prototype-api.json`, `runtime-api.json`: latest factorio modding apis
