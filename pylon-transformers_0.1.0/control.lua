@@ -57,6 +57,8 @@ local function init_storage()
   storage.buckets = storage.buckets or {}
   for i = 1, N do storage.buckets[i] = storage.buckets[i] or {} end
   storage.dirty = storage.dirty or false
+  storage.drag = storage.drag or {}               -- player index -> true while dragging a copper wire
+  storage.safety_count = storage.safety_count or 0 -- 15-tick steps since the last safety recompute
 end
 
 -- Re-point the local `buckets` alias at storage.buckets. Must run after every load.
@@ -400,6 +402,49 @@ for _, id in ipairs{ defines.events.on_player_mined_entity, defines.events.on_ro
                      defines.events.on_entity_died, defines.events.script_raised_destroy } do
   script.on_event(id, on_pole_removed, pole_filters)
 end
+---------------------------------------------------------------------------
+-- Wires connected or cut by hand (copper wire tool)
+---------------------------------------------------------------------------
+-- The game raises no event when a wire is connected or cut between existing poles, and building
+-- nothing means the build handlers above never run. What the API does expose is the player's wire
+-- drag state: `drag_target` is set after the first click on a pole and cleared again when the wire
+-- is placed, removed or cancelled. A player going from "dragging a copper wire" to "not dragging"
+-- therefore means the pole network may have changed, so the line distances are flagged outdated
+-- (the debounced timer below does the actual recompute).
+-- The per-player flag lives in `storage`, not in a local, so that every multiplayer peer (including
+-- one that joins mid-drag) makes the same decision and sets `storage.dirty` on the same tick.
+local pole_copper = defines.wire_connector_id.pole_copper
+
+local function poll_wire_drag()
+  local drag = storage.drag
+  if not drag then drag = {}; storage.drag = drag end -- saves made before this existed
+  for _, player in pairs(game.connected_players) do
+    local idx = player.index
+    local target = player.drag_target
+    if target and target.wire_connector_id == pole_copper then
+      drag[idx] = true
+    elseif drag[idx] then
+      drag[idx] = nil
+      storage.dirty = true
+    end
+  end
+end
+script.on_nth_tick(C.wire_poll_ticks, poll_wire_drag)
+
+-- A player who leaves mid-drag cancels the wire; treat it like the end of a drag.
+script.on_event(defines.events.on_player_left_game, function(event)
+  local drag = storage.drag
+  if drag and drag[event.player_index] then
+    drag[event.player_index] = nil
+    storage.dirty = true
+  end
+end)
+
+-- Undo / redo can restore or remove wires without any build or mine event for the poles.
+for _, id in ipairs{ defines.events.on_undo_applied, defines.events.on_redo_applied } do
+  script.on_event(id, function() storage.dirty = true end)
+end
+
 local clone_filters = {}
 for _, name in ipairs(shell_names) do clone_filters[#clone_filters + 1] = { filter = "name", name = name } end
 for name in pairs(half_names) do clone_filters[#clone_filters + 1] = { filter = "name", name = name } end
@@ -443,7 +488,21 @@ end)
 
 -- Debounced recompute of line losses after pole / step-up changes (not a per-tick cost).
 -- The check itself is one boolean every 15 ticks; the heavy work only runs after a change.
-script.on_nth_tick(15, function()
+-- Safety net: every C.safety_recompute_ticks the flag is raised anyway, so wire changes that no
+-- event or drag state revealed (blueprint wire paste, other mods) are still picked up.
+local TIMER_TICKS = 15
+local SAFETY_STEPS = C.safety_recompute_ticks > 0
+  and math.max(1, math.floor(C.safety_recompute_ticks / TIMER_TICKS + 0.5)) or nil
+
+script.on_nth_tick(TIMER_TICKS, function()
+  if SAFETY_STEPS then
+    local n = (storage.safety_count or 0) + 1
+    if n >= SAFETY_STEPS then
+      n = 0
+      storage.dirty = true
+    end
+    storage.safety_count = n
+  end
   if storage.dirty then
     storage.dirty = false
     recompute_all()

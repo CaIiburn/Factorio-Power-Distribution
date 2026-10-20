@@ -35,6 +35,18 @@ C.tiers = {
   [3] = { rated_w = 100e6, idle_w = 300e3, conversion = 0.010, line_per_tile = 0.0001 },
 }
 
+-- Wires connected or cut by hand with the copper wire tool raise no game event. The control script
+-- therefore watches each player's wire drag state (see poll_wire_drag in control.lua).
+-- How often (ticks) that state is polled. 1 is cheap (one property read per connected player) and
+-- cannot miss a fast click-drag. Must not be 15 (that tick interval is used by the debounce timer).
+C.wire_poll_ticks = 1
+
+-- Safety net: re-evaluate every step-down's line distance at least this often (ticks), even when
+-- no event announced a change. It catches wire changes nothing can detect, such as a blueprint
+-- pasted over existing poles that only adds wires, or another mod calling connect_to.
+-- 0 disables it.
+C.safety_recompute_ticks = 600
+
 -- Prototype name helpers, so both stages build identical names.
 function C.shell_name(kind, tier) return "pt-" .. kind .. "-" .. tier end
 function C.in_name(kind, tier)    return "pt-in-" .. kind .. "-" .. tier end

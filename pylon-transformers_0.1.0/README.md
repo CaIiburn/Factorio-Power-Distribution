@@ -51,7 +51,9 @@ Every transformer is made of three entities:
 
 The engine does the idle drain, power cap and buffering. A script moves energy from the input buffer to the output buffer once every N ticks. Per update, a transformer costs 2 reads and 2 writes. The transformers are split into N buckets, so each tick services about 1/N of them.
 
-The loss factor is computed once when the transformer is built. For a step-down, a Dijkstra search over copper wire connections finds the nearest step-up and its wire length. It is recomputed (debounced, not per tick) when a pole or a step-up is built or removed. Wires connected or cut by hand do not trigger a recompute.
+The loss factor is computed once when the transformer is built. For a step-down, a Dijkstra search over copper wire connections finds the nearest step-up and its wire length. It is recomputed (debounced, not per tick) when a pole or a step-up is built or removed, when a copper wire is connected or cut by hand with the copper wire tool, and on undo / redo.
+
+The game raises no event for wire changes between existing poles, so the script watches each player's wire drag state (`LuaPlayer.drag_target`). When a player finishes or cancels a copper wire drag, the distances are flagged outdated. As a safety net for wire changes nothing can detect (for example a blueprint pasted over existing poles that only adds wires, or another mod connecting wires by script), every step-down is also re-evaluated every 600 ticks. Both intervals are in `config.lua` (`wire_poll_ticks`, `safety_recompute_ticks`).
 
 Buffers are sized to carry a transformer through one update interval with a 2x safety factor, so there are no brownouts between updates. The input flow limit is 3x the rated output.
 
