@@ -28,6 +28,16 @@ local function fmt_pct(f) return string.format("%g %%", f * 100) end
 -- Icons and sprites are generated placeholders under graphics/.
 local function icon_path(name) return "__pylon-transformers__/graphics/icons/" .. name .. ".png" end
 
+-- One sprite per direction. north is the base image (4x2 tiles, input left, output right);
+-- east/south/west are that image rotated clockwise by 90/180/270 degrees, so east and west are
+-- 2x4 tiles. tools/make_rotated_graphics.py generates them from the north image.
+local function entity_sprite(shell, suffix, width, height)
+  return {
+    filename = "__pylon-transformers__/graphics/entity/" .. shell .. suffix .. ".png",
+    width = width, height = height, scale = 0.5,
+  }
+end
+
 -- Prototype list, passed to data:extend once at the end of the loop.
 local out = {}
 
@@ -59,18 +69,24 @@ for _, kind in ipairs(C.kinds) do
       -- Visible shell: the only thing the player ever sees / blueprints / upgrades.
       -- Note: fast_replaceable_group and next_upgrade are both scoped to kind+size,
       -- so upgrading only ever advances tier, never jumps size class.
+      --
+      -- Rotation: the prototype is rotatable (no "not-rotatable" flag), so the cursor, blueprints
+      -- and R on a placed entity rotate it in 90 degree steps and the collision box turns with it.
+      -- control.lua moves the hidden halves to the matching ends.
       out[#out + 1] = {
         type = "simple-entity-with-owner",
         name = shell,
         icon = icon, icon_size = 64,
-        flags = { "placeable-neutral", "player-creation", "not-rotatable" },
+        flags = { "placeable-neutral", "player-creation" },
         minable = { mining_time = 0.3, result = shell },
         max_health = 250,
         collision_box = { { -1.85, -0.85 }, { 1.85, 0.85 } },
         selection_box = { { -2, -1 }, { 2, 1 } },
         picture = {
-          filename = "__pylon-transformers__/graphics/entity/" .. shell .. ".png",
-          width = 256, height = 128, scale = 0.5,
+          north = entity_sprite(shell, "",       256, 128),
+          east  = entity_sprite(shell, "-east",  128, 256),
+          south = entity_sprite(shell, "-south", 256, 128),
+          west  = entity_sprite(shell, "-west",  128, 256),
         },
         fast_replaceable_group = "pt-" .. kind .. "-" .. size,
         next_upgrade = (C.tiers[tier + 1] and C.shell_name(kind, tier + 1, size)) or nil,
@@ -144,7 +160,6 @@ for _, kind in ipairs(C.kinds) do
   end
 end
 
-
 local techs = Technologies.generate(C)
 for _, tech in ipairs(techs) do
   out[#out + 1] = tech
@@ -152,4 +167,3 @@ end
 
 -- Register everything generated above.
 data:extend(out)
-

@@ -10,7 +10,7 @@ C.half_box = 0.1
 
 -- Buffers must carry a transformer between two script updates, with a safety factor.
 -- Buffer capacity multiplier over what is needed between two script updates.
-C.buffer_safety = 1.25
+C.buffer_safety = 1.1
 
 local e6 = 1000000
 
@@ -26,9 +26,7 @@ C.sizes = {"small", "medium", "large"}
 --   * Capacity doubles per size step (small -> medium -> large) and is x5 per tier.
 --   * Bigger sizes have a higher absolute idle loss but a lower loss at full load, so small
 --     transformers are more efficient at low load and big ones under load.
---     Medium beats small above ~61 % of the small's capacity,
---     large beats medium above ~63 % of the medium's capacity (same in every tier).
---   * Each tier removes another 12 % of the tier-1 loss fractions (multiplier 1.0, 0.88 ... 0.4).
+--   * Each tier removes another 12.5 % of the tier-1 loss fractions (multiplier 1.0, 0.875 ... 0.375).
 --
 -- Tier-1 values: idle / full are fractions of that size's own rated capacity.
 local size_params = {

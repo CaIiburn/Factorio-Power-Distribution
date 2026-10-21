@@ -1,10 +1,18 @@
 -- Pylon Transformers - runtime script.
 --
 -- Design: every transformer is a visible "shell" entity plus two hidden electric-energy-interface
--- halves (input = left, output = right). The engine handles idle drain, the output power cap and
--- the buffers natively. This script only
---   (1) creates / destroys the halves together with the shell, and
+-- halves (input and output, on opposite ends of the shell). The engine handles idle drain, the
+-- output power cap and the buffers natively. This script only
+--   (1) creates / destroys / repositions the halves together with the shell, and
 --   (2) moves energy from the input buffer to the output buffer.
+--
+-- Orientation: the shell is a normal rotatable entity with four directions. Facing north the
+-- building is 4x2 with the input on the left (west) end and the output on the right (east) end.
+-- Every other direction is that layout turned clockwise (east: input on top, output at the bottom;
+-- south: input right, output left; west: input at the bottom, output on top). East and west are
+-- 2x4 tiles. The engine does the rotating (cursor, blueprints, R on a placed entity); this script
+-- moves the halves to the matching ends when a placed transformer is rotated, and each half keeps
+-- its stored energy.
 --
 -- Transfer, per transformer, once every N ticks (N = startup setting "pt-update-interval"):
 --   missing   = output buffer size - output energy
@@ -53,6 +61,18 @@ for _, kind in ipairs(C.kinds) do
   end
 end
 
+local north, east, south, west =
+  defines.direction.north, defines.direction.east, defines.direction.south, defines.direction.west
+
+-- Direction of the shell -> unit vector from the shell center towards its OUTPUT end.
+-- The input end is the opposite one. Turning clockwise: right -> down -> left -> up.
+local OUTPUT_VECTOR = {
+  [north] = {  1,  0 },
+  [east]  = {  0,  1 },
+  [south] = { -1,  0 },
+  [west]  = {  0, -1 },
+}
+
 ---------------------------------------------------------------------------------------------------
 -- Storage
 --
@@ -84,16 +104,26 @@ end
 local function init_storage()
   storage.transformers = storage.transformers or {}
   rebuild_buckets()
+
+  -- An earlier version of this mod set rotatable = false on placed shells. That flag is saved with
+  -- the entity, so undo it for existing transformers.
+  for _, rec in pairs(storage.transformers) do
+    if rec.shell.valid then rec.shell.rotatable = true end
+  end
 end
 
 ---------------------------------------------------------------------------------------------------
 -- Hidden halves
 ---------------------------------------------------------------------------------------------------
 
-local function create_half(shell, name, dx)
+-- side = 1 for the output half, -1 for the input half.
+local function create_half(shell, name, side)
+  local v = OUTPUT_VECTOR[shell.direction] or OUTPUT_VECTOR[north]
+  local d = C.half_offset * side
+  local pos = shell.position
   return shell.surface.create_entity{
     name = name,
-    position = { shell.position.x + dx, shell.position.y },
+    position = { pos.x + v[1] * d, pos.y + v[2] * d },
     force = shell.force,
     create_build_effect_smoke = false,
     raise_built = false,
@@ -110,14 +140,36 @@ local function ensure_halves(rec)
   local shell, info = rec.shell, rec.info
 
   if not (rec.input and rec.input.valid) then
-    rec.input = create_half(shell, info.in_name, -C.half_offset)
+    rec.input = create_half(shell, info.in_name, -1)
   end
   if not (rec.output and rec.output.valid) then
-    rec.output = create_half(shell, info.out_name, C.half_offset)
+    rec.output = create_half(shell, info.out_name, 1)
     if rec.output then fill_buffer(rec.output) end
   end
 
   return (rec.input and rec.input.valid and rec.output and rec.output.valid) and true or false
+end
+
+-- Moves both halves to where the shell's current direction wants them. They are recreated rather
+-- than moved, and each keeps the energy it had, so rotating never creates or destroys energy.
+local function rebuild_halves(rec)
+  local input, output = rec.input, rec.output
+  local in_energy = (input and input.valid) and input.energy or nil
+  local out_energy = (output and output.valid) and output.energy or nil
+
+  if input and input.valid then input.destroy() end
+  if output and output.valid then output.destroy() end
+  rec.input, rec.output = nil, nil
+
+  if not ensure_halves(rec) then return end
+
+  -- ensure_halves() started the new output half full; put the old charge back.
+  if in_energy then
+    rec.input.energy = math.min(in_energy, rec.input.electric_buffer_size)
+  end
+  if out_energy then
+    rec.output.energy = math.min(out_energy, rec.output.electric_buffer_size)
+  end
 end
 
 ---------------------------------------------------------------------------------------------------
@@ -145,7 +197,7 @@ local function register(shell)
   -- fast-replaced, surface deleted), so the halves are always cleaned up.
   script.register_on_object_destroyed(shell)
 
-  -- Creates both halves and fills the output buffer.
+  -- Creates both halves for the shell's direction and fills the output buffer.
   ensure_halves(rec)
 end
 
@@ -209,6 +261,21 @@ local function on_tick(event)
 end
 
 ---------------------------------------------------------------------------------------------------
+-- Rotation
+---------------------------------------------------------------------------------------------------
+
+-- A player rotated a placed transformer (R / Shift+R): move the halves to the ends that match the
+-- new direction. Placing a transformer with a direction (cursor, blueprint, fast replace) does not
+-- need this, because register() creates the halves for the direction it is built with.
+local function on_player_rotated_entity(event)
+  local entity = event.entity
+  if not (entity and entity.valid and shells[entity.name]) then return end
+
+  local rec = storage.transformers[entity.unit_number]
+  if rec then rebuild_halves(rec) end
+end
+
+---------------------------------------------------------------------------------------------------
 -- Events
 ---------------------------------------------------------------------------------------------------
 
@@ -251,6 +318,7 @@ end
 
 script.on_event(defines.events.on_entity_cloned, on_cloned)
 script.on_event(defines.events.on_object_destroyed, on_object_destroyed)
+script.on_event(defines.events.on_player_rotated_entity, on_player_rotated_entity)
 script.on_event(defines.events.on_tick, on_tick)
 
 script.on_init(init_storage)
