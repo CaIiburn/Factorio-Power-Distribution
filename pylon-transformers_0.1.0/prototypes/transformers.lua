@@ -1,8 +1,10 @@
--- Prototype generator. For every kind (up/down) and tier it creates:
---   1 visible shell entity  - what the player places, blueprints and upgrades
+-- Prototype generator. For every kind (up/down), tier and size it creates:
+--   1 visible shell entity  - a constant combinator: what the player places, blueprints, upgrades
+--                             and wires up. control.lua writes load / power / temperature to it.
 --   2 hidden energy halves  - input (buffered consumer) and output (buffered producer)
+--   2 hidden heat pipes     - only for heat tiers (C.heat.tiers); horizontal and vertical variant
 --   1 item and 1 recipe
--- plus one technology per tier at the end of the file.
+-- plus the virtual signals and one technology per tier.
 local C = require("config")
 local Recipes = require("recipes")
 local Technologies = require("technologies")
@@ -24,6 +26,7 @@ local function fmt_power(w)
   return string.format("%g W", w)
 end
 local function fmt_pct(f) return string.format("%g %%", f * 100) end
+local function fmt_temp(c) return string.format("%g °C", c) end
 
 -- Icons and sprites are generated placeholders under graphics/.
 local function icon_path(name) return "__pylon-transformers__/graphics/icons/" .. name .. ".png" end
@@ -38,13 +41,115 @@ local function entity_sprite(shell, suffix, width, height)
   }
 end
 
+-- Returns the prototype name only when that prototype exists, so a missing effect cannot stop
+-- the game from loading.
+local function existing(type_name, name)
+  local list = data.raw[type_name]
+  return (name and list and list[name]) and name or nil
+end
+
+local EMPTY = { filename = "__core__/graphics/empty.png", priority = "extra-high", width = 1, height = 1 }
+
+local function empty_sprite_4way()
+  return { north = EMPTY, east = EMPTY, south = EMPTY, west = EMPTY }
+end
+
+-- heat-pipe prototypes insist on connection and glow graphics for every neighbour layout.
+local CONNECTABLE_KEYS = {
+  "single", "straight_vertical", "straight_horizontal",
+  "corner_right_down", "corner_left_down", "corner_right_up", "corner_left_up",
+  "t_up", "t_down", "t_right", "t_left",
+  "ending_up", "ending_down", "ending_right", "ending_left", "cross",
+}
+local function empty_connectable_graphics()
+  local g = {}
+  for _, key in ipairs(CONNECTABLE_KEYS) do g[key] = { EMPTY } end
+  return g
+end
+
+-- Heat connections on the two LONG sides, one per tile.
+--   horizontal (shell facing north/south): 4x2 tiles, connections on the top and bottom row
+--   vertical   (shell facing east/west):   2x4 tiles, connections on the left and right column
+-- Positions are tile centres relative to the entity centre.
+local function heat_connections(vertical)
+  local connections = {}
+  for i = 0, 3 do
+    local p = -1.5 + i
+    if vertical then
+      connections[#connections + 1] = { position = { -0.5, p }, direction = defines.direction.west }
+      connections[#connections + 1] = { position = {  0.5, p }, direction = defines.direction.east }
+    else
+      connections[#connections + 1] = { position = { p, -0.5 }, direction = defines.direction.north }
+      connections[#connections + 1] = { position = { p,  0.5 }, direction = defines.direction.south }
+    end
+  end
+  return connections
+end
+
+-- Circuit wire attachment points for the four directions (north, east, south, west). Defined for
+-- north (on the top long side, near the centre) and turned clockwise for the other directions.
+local function turn(p, steps)
+  local x, y = p[1], p[2]
+  for _ = 1, steps do x, y = -y, x end
+  return { x, y }
+end
+
+local function wire_points()
+  local points = {}
+  for dir = 0, 3 do
+    local red, green = turn({ -0.3, -0.6 }, dir), turn({ 0.3, -0.6 }, dir)
+    points[dir + 1] = {
+      wire = { red = red, green = green },
+      shadow = {
+        red   = { red[1] + 0.15,   red[2] + 0.15 },
+        green = { green[1] + 0.15, green[2] + 0.15 },
+      },
+    }
+  end
+  return points
+end
+
 -- Prototype list, passed to data:extend once at the end of the loop.
 local out = {}
+
+---------------------------------------------------------------------------------------------------
+-- Virtual signals (placeholder icon: the small tier-1 step-up transformer, tinted)
+---------------------------------------------------------------------------------------------------
+
+out[#out + 1] = {
+  type = "item-subgroup",
+  name = "pt-signals",
+  group = "signals",
+  order = "z[pt]",
+}
+
+local function signal(name, order, tint)
+  return {
+    type = "virtual-signal",
+    name = name,
+    icons = { { icon = icon_path(C.shell_name("up", 1, "small")), icon_size = 64, tint = tint } },
+    subgroup = "pt-signals",
+    order = order,
+  }
+end
+
+out[#out + 1] = signal(C.signal.load,        "a[load]",        { r = 1.0, g = 0.85, b = 0.3, a = 1 })
+out[#out + 1] = signal(C.signal.power,       "b[power]",       { r = 0.4, g = 0.8,  b = 1.0, a = 1 })
+out[#out + 1] = signal(C.signal.temperature, "c[temperature]", { r = 1.0, g = 0.4,  b = 0.3, a = 1 })
+
+---------------------------------------------------------------------------------------------------
+-- Transformers
+---------------------------------------------------------------------------------------------------
+
+-- Hidden entities: not selectable, not blueprintable, no collision.
+local hidden_flags = { "placeable-off-grid", "not-on-map", "not-blueprintable", "not-deconstructable",
+                       "not-repairable", "not-rotatable", "not-flammable" }
 
 for _, kind in ipairs(C.kinds) do
   for tier, tier_data in ipairs(C.tiers) do
     for _, size in ipairs(C.sizes) do
-      local t = tier_data[size]  -- { capacity_w, idle_w, full_w }
+      local t = tier_data[size]  -- { capacity_w, idle_w, full_w, heat? }
+      local h = t.heat           -- nil for tiers without the heat mechanic
       local shell = C.shell_name(kind, tier, size)
       local icon = icon_path(shell)
 
@@ -64,42 +169,55 @@ for _, kind in ipairs(C.kinds) do
         { name = {"pt-tooltip.idle-loss"},   value = fmt_power(idle_w),  order = 2 },
         { name = {"pt-tooltip.conv-loss"},   value = fmt_pct(conv_pct),  order = 3 },
       }
+      local description = { "", {"entity-description.pt-" .. kind}, "\n", {"entity-description.pt-circuit"} }
+      if h then
+        fields[#fields + 1] = { name = {"pt-tooltip.cool-load"},    value = fmt_pct(C.heat.cool_load), order = 4 }
+        fields[#fields + 1] = { name = {"pt-tooltip.explode-temp"}, value = fmt_temp(h.explode_c),     order = 5 }
+        description[#description + 1] = "\n"
+        description[#description + 1] = {"entity-description.pt-heat"}
+      end
 
-      -- Fast replace and upgrade planner work through fast_replaceable_group and next_upgrade.
-      -- Visible shell: the only thing the player ever sees / blueprints / upgrades.
-      -- Note: fast_replaceable_group and next_upgrade are both scoped to kind+size,
-      -- so upgrading only ever advances tier, never jumps size class.
+      -- Visible shell: the only thing the player ever sees / blueprints / upgrades / wires.
+      -- It is a constant combinator because only that entity type can carry circuit wires and
+      -- hold signals; control.lua owns its contents and disables the GUI (operable = false).
+      --
+      -- Fast replace and upgrade planner work through fast_replaceable_group and next_upgrade,
+      -- both scoped to kind+size, so upgrading only ever advances tier, never jumps size class.
       --
       -- Rotation: the prototype is rotatable (no "not-rotatable" flag), so the cursor, blueprints
       -- and R on a placed entity rotate it in 90 degree steps and the collision box turns with it.
-      -- control.lua moves the hidden halves to the matching ends.
+      -- control.lua moves the hidden halves (and heat pipe) to the matching ends.
       out[#out + 1] = {
-        type = "simple-entity-with-owner",
+        type = "constant-combinator",
         name = shell,
         icon = icon, icon_size = 64,
         flags = { "placeable-neutral", "player-creation" },
         minable = { mining_time = 0.3, result = shell },
         max_health = 250,
+        dying_explosion = existing("explosion", C.explosion_effect[size]),
         collision_box = { { -1.85, -0.85 }, { 1.85, 0.85 } },
         selection_box = { { -2, -1 }, { 2, 1 } },
-        picture = {
+        sprites = {
           north = entity_sprite(shell, "",       256, 128),
           east  = entity_sprite(shell, "-east",  128, 256),
           south = entity_sprite(shell, "-south", 256, 128),
           west  = entity_sprite(shell, "-west",  128, 256),
         },
+        activity_led_sprites = empty_sprite_4way(),
+        activity_led_light_offsets = { { 0, 0 }, { 0, 0 }, { 0, 0 }, { 0, 0 } },
+        circuit_wire_connection_points = wire_points(),
+        circuit_wire_max_distance = 9,
         fast_replaceable_group = "pt-" .. kind .. "-" .. size,
         next_upgrade = (C.tiers[tier + 1] and C.shell_name(kind, tier + 1, size)) or nil,
         custom_tooltip_fields = fields,
-        localised_description = {"entity-description.pt-" .. kind},
+        localised_description = description,
       }
 
-      -- Settings shared by both hidden halves. Unchanged from before.
+      -- Settings shared by both hidden halves.
       local half_common = {
         type = "electric-energy-interface",
         icon = icon, icon_size = 64,
-        flags = { "placeable-off-grid", "not-on-map", "not-blueprintable", "not-deconstructable",
-                  "not-repairable", "not-rotatable", "not-flammable" },
+        flags = hidden_flags,
         hidden = true,
         hidden_in_factoriopedia = true,
         selectable_in_game = false,
@@ -109,9 +227,7 @@ for _, kind in ipairs(C.kinds) do
       }
 
       -- Input half: buffered consumer. Native engine drain = idle loss.
-      -- (Conversion/copper loss is NOT representable here since `drain` is constant —
-      --  it must be applied by a control.lua script reading actual throughput per tick
-      --  and topping up consumption beyond what drain alone covers. See note below.)
+      -- (Conversion loss is applied by control.lua on every transfer.)
       local inp = table.deepcopy(half_common)
       inp.name = C.in_name(kind, tier, size)
       inp.energy_source = {
@@ -136,6 +252,39 @@ for _, kind in ipairs(C.kinds) do
         drain = "0W",
       }
       out[#out + 1] = outp
+
+      -- Hidden heat pipes (heat tiers only). The heat buffer holds the temperature; the engine
+      -- shares heat with connected heat pipes, control.lua adds the waste heat and the passive
+      -- cooling. max_temperature sits above the explosion temperature so the script can see it.
+      if h then
+        for _, vertical in ipairs({ false, true }) do
+          local box = vertical
+            and { { -0.85, -1.85 }, { 0.85, 1.85 } }
+             or { { -1.85, -0.85 }, { 1.85, 0.85 } }
+          out[#out + 1] = {
+            type = "heat-pipe",
+            name = C.heat_name(kind, tier, size, vertical),
+            icon = icon, icon_size = 64,
+            flags = { "not-on-map", "not-blueprintable", "not-deconstructable",
+                      "not-repairable", "not-rotatable", "not-flammable" },
+            hidden = true,
+            hidden_in_factoriopedia = true,
+            selectable_in_game = false,
+            collision_box = box,
+            collision_mask = { layers = {} },
+            allow_copy_paste = false,
+            heat_buffer = {
+              max_temperature = h.max_c,
+              default_temperature = C.heat.ambient,
+              specific_heat = J(h.specific_heat),
+              max_transfer = "1GW",
+              connections = heat_connections(vertical),
+            },
+            connection_sprites = empty_connectable_graphics(),
+            heat_glow_sprites = empty_connectable_graphics(),
+          }
+        end
+      end
 
       out[#out + 1] = {
         type = "item",
