@@ -8,6 +8,24 @@ C.kinds = {"up", "down"}
 C.half_offset = 1.8
 C.half_box = 0.1
 
+-- Connection poles, one on each end of the shell, at the same spot as the electric halves.
+-- They are the only link between a transformer and the outside grid, and the player wires them
+-- by hand with copper wire (they are selectable, but cannot be mined or blueprinted):
+--   * the supply area is just big enough to cover the half at their end (and nothing else, not
+--     even the half of a transformer that is built end to end with this one),
+--   * auto_connect_up_to_n_wires is 0, so a pole never wires itself to anything when it is
+--     created. The two poles of one transformer therefore start out unconnected, although they
+--     are well within wire reach of each other (2 * half_offset = 3.6 apart),
+--   * the selection box is a small square around the pole, drawn above the shell's own.
+C.pole_name = "pt-hidden-pole"
+C.pole_supply = 0.25   -- supply_area_distance
+C.pole_reach = 9       -- maximum_wire_distance
+C.pole_select = 0.3    -- half size of the selection box
+
+-- Half extents of the area a transformer occupies, long axis first (the halves stick out a little
+-- past the shell's collision box). Used for the "not inside a pole's supply area" rule.
+C.footprint = { long = C.half_offset + C.half_box, short = 0.85 }
+
 -- Buffers must carry a transformer between two script updates, with a safety factor.
 -- Buffer capacity multiplier over what is needed between two script updates.
 C.buffer_safety = 1.1

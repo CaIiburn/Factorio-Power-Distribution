@@ -8,6 +8,7 @@
 local C = require("config")
 local Recipes = require("recipes")
 local Technologies = require("technologies")
+local Sprites = require("sprites")  -- ported Electric Grid art, see THIRD_PARTY_LICENSE.txt
 local recipes = Recipes.generate(C)
 
 -- Update interval from settings.lua; used to size buffers.
@@ -28,18 +29,8 @@ end
 local function fmt_pct(f) return string.format("%g %%", f * 100) end
 local function fmt_temp(c) return string.format("%g °C", c) end
 
--- Icons and sprites are generated placeholders under graphics/.
+-- Icons (128 px, tinted, with tier and size badge) and sprites (see sprites.lua) are under graphics/.
 local function icon_path(name) return "__pylon-transformers__/graphics/icons/" .. name .. ".png" end
-
--- One sprite per direction. north is the base image (4x2 tiles, input left, output right);
--- east/south/west are that image rotated clockwise by 90/180/270 degrees, so east and west are
--- 2x4 tiles. tools/make_rotated_graphics.py generates them from the north image.
-local function entity_sprite(shell, suffix, width, height)
-  return {
-    filename = "__pylon-transformers__/graphics/entity/" .. shell .. suffix .. ".png",
-    width = width, height = height, scale = 0.5,
-  }
-end
 
 -- Returns the prototype name only when that prototype exists, so a missing effect cannot stop
 -- the game from loading.
@@ -127,7 +118,7 @@ local function signal(name, order, tint)
   return {
     type = "virtual-signal",
     name = name,
-    icons = { { icon = icon_path(C.shell_name("up", 1, "small")), icon_size = 64, tint = tint } },
+    icons = { { icon = icon_path(C.shell_name("up", 1, "small")), icon_size = 128, tint = tint } },
     subgroup = "pt-signals",
     order = order,
   }
@@ -145,9 +136,34 @@ out[#out + 1] = signal(C.signal.temperature, "c[temperature]", { r = 1.0, g = 0.
 local hidden_flags = { "placeable-off-grid", "not-on-map", "not-blueprintable", "not-deconstructable",
                        "not-repairable", "not-rotatable", "not-flammable" }
 
+-- Connection pole. One prototype serves every transformer: it only depends on the offsets in
+-- config.lua. The tiny supply area reaches just the electric half at its end, it never connects
+-- itself to anything (auto_connect_up_to_n_wires = 0), and it can be selected so the player can
+-- wire it. Hidden from lists and Factoriopedia, not minable, not blueprintable.
+out[#out + 1] = {
+  type = "electric-pole",
+  name = C.pole_name,
+  icon = icon_path(C.shell_name("up", 1, "small")), icon_size = 128,
+  flags = hidden_flags,
+  hidden = true,
+  hidden_in_factoriopedia = true,
+  max_health = 100,
+  collision_box = { { -C.half_box, -C.half_box }, { C.half_box, C.half_box } },
+  collision_mask = { layers = {} },
+  selection_box = { { -C.pole_select, -C.pole_select }, { C.pole_select, C.pole_select } },
+  selection_priority = 60,  -- above the shell (50), so the pole can be picked at the end of it
+  allow_copy_paste = false,
+  supply_area_distance = C.pole_supply,
+  maximum_wire_distance = C.pole_reach,
+  auto_connect_up_to_n_wires = 0,
+  pictures = { filename = EMPTY.filename, width = 1, height = 1, direction_count = 1 },
+  connection_points = { { wire = { copper = { 0, 0 } }, shadow = { copper = { 0, 0 } } } },
+  draw_circuit_wires = false,
+}
+
 for _, kind in ipairs(C.kinds) do
   for tier, tier_data in ipairs(C.tiers) do
-    for _, size in ipairs(C.sizes) do
+    for size_index, size in ipairs(C.sizes) do
       local t = tier_data[size]  -- { capacity_w, idle_w, full_w, heat? }
       local h = t.heat           -- nil for tiers without the heat mechanic
       local shell = C.shell_name(kind, tier, size)
@@ -169,7 +185,8 @@ for _, kind in ipairs(C.kinds) do
         { name = {"pt-tooltip.idle-loss"},   value = fmt_power(idle_w),  order = 2 },
         { name = {"pt-tooltip.conv-loss"},   value = fmt_pct(conv_pct),  order = 3 },
       }
-      local description = { "", {"entity-description.pt-" .. kind}, "\n", {"entity-description.pt-circuit"} }
+      local description = { "", {"entity-description.pt-" .. kind}, "\n", {"entity-description.pt-power"},
+                            "\n", {"entity-description.pt-circuit"} }
       if h then
         fields[#fields + 1] = { name = {"pt-tooltip.cool-load"},    value = fmt_pct(C.heat.cool_load), order = 4 }
         fields[#fields + 1] = { name = {"pt-tooltip.explode-temp"}, value = fmt_temp(h.explode_c),     order = 5 }
@@ -190,19 +207,15 @@ for _, kind in ipairs(C.kinds) do
       out[#out + 1] = {
         type = "constant-combinator",
         name = shell,
-        icon = icon, icon_size = 64,
+        icon = icon, icon_size = 128,
         flags = { "placeable-neutral", "player-creation" },
         minable = { mining_time = 0.3, result = shell },
         max_health = 250,
         dying_explosion = existing("explosion", C.explosion_effect[size]),
         collision_box = { { -1.85, -0.85 }, { 1.85, 0.85 } },
         selection_box = { { -2, -1 }, { 2, 1 } },
-        sprites = {
-          north = entity_sprite(shell, "",       256, 128),
-          east  = entity_sprite(shell, "-east",  128, 256),
-          south = entity_sprite(shell, "-south", 256, 128),
-          west  = entity_sprite(shell, "-west",  128, 256),
-        },
+        drawing_box_vertical_extension = 1.3,  -- the bushings stick out above the 2x4 footprint
+        sprites = Sprites.shell(kind, tier, size_index),
         activity_led_sprites = empty_sprite_4way(),
         activity_led_light_offsets = { { 0, 0 }, { 0, 0 }, { 0, 0 }, { 0, 0 } },
         circuit_wire_connection_points = wire_points(),
@@ -216,7 +229,7 @@ for _, kind in ipairs(C.kinds) do
       -- Settings shared by both hidden halves.
       local half_common = {
         type = "electric-energy-interface",
-        icon = icon, icon_size = 64,
+        icon = icon, icon_size = 128,
         flags = hidden_flags,
         hidden = true,
         hidden_in_factoriopedia = true,
@@ -264,7 +277,7 @@ for _, kind in ipairs(C.kinds) do
           out[#out + 1] = {
             type = "heat-pipe",
             name = C.heat_name(kind, tier, size, vertical),
-            icon = icon, icon_size = 64,
+            icon = icon, icon_size = 128,
             flags = { "not-on-map", "not-blueprintable", "not-deconstructable",
                       "not-repairable", "not-rotatable", "not-flammable" },
             hidden = true,
@@ -289,7 +302,7 @@ for _, kind in ipairs(C.kinds) do
       out[#out + 1] = {
         type = "item",
         name = shell,
-        icon = icon, icon_size = 64,
+        icon = icon, icon_size = 128,
         subgroup = "energy",
         order = "e[pt]-" .. (kind == "up" and "a" or "b")
                 .. "[" .. kind .. "]-" .. tier .. "-" .. size,

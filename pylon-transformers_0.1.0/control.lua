@@ -4,13 +4,20 @@
 -- helper entities:
 --   * two electric-energy-interface halves (input and output, on opposite ends of the shell).
 --     The engine handles idle drain, the output power cap and the buffers natively.
+--   * two small connection poles, one on each half. Their supply area only reaches the half at
+--     their end and they never wire themselves to anything (auto_connect_up_to_n_wires = 0). They
+--     are the connection points to the outside grid: the player wires them by hand. The script
+--     keeps the wires when the transformer is rotated and cuts a wire that an auto-connecting
+--     pole built nearby made to both ends of the same transformer.
 --   * for heat tiers (config: C.heat.tiers) one hidden heat-pipe that owns the temperature and
 --     lets ordinary heat pipes connect to the long sides of the transformer.
 -- This script only
 --   (1) creates / destroys / repositions the helpers together with the shell,
 --   (2) moves energy from the input buffer to the output buffer,
 --   (3) writes load / power (/ temperature) to the shell's circuit signals,
---   (4) heats and cools heat-tier transformers, raises alerts and lets them explode.
+--   (4) heats and cools heat-tier transformers, raises alerts and lets them explode,
+--   (5) refuses to build / rotate a transformer into the supply area of any electric pole,
+--   (6) shows the supply areas of nearby electric poles while a transformer is held.
 --
 -- Orientation: the shell is a normal rotatable entity with four directions. Facing north the
 -- building is 4x2 with the input on the left (west) end and the output on the right (east) end.
@@ -57,6 +64,15 @@ local STORAGE_VERSION = 2
 local AMBIENT = C.heat.ambient
 local ALERT_INTERVAL = C.heat.alert_interval
 
+local POLE_NAME = C.pole_name
+-- Tolerance for the supply-area rule: an area that merely touches the footprint does not count.
+local EPS = 0.001
+
+-- Held-item overlay: radius around the player that is searched for poles, and refresh interval.
+local OVERLAY_RADIUS = 48
+local OVERLAY_INTERVAL = 15
+local OVERLAY_COLOR = { r = 0.08, g = 0.22, b = 0.35, a = 0.28 }
+
 -- Signal ids, created once. The engine copies them on every write.
 local SIG_LOAD = { type = "virtual", name = C.signal.load, quality = "normal" }
 local SIG_POWER = { type = "virtual", name = C.signal.power, quality = "normal" }
@@ -69,7 +85,7 @@ local SIG_TEMPERATURE = { type = "virtual", name = C.signal.temperature, quality
 -- shell prototype name -> info (see below)
 local shells = {}
 -- hidden helper prototype name -> true (halves and heat pipes)
-local hidden_names = {}
+local hidden_names = { [POLE_NAME] = true }
 
 for _, kind in ipairs(C.kinds) do
   for tier, tier_data in ipairs(C.tiers) do
@@ -119,16 +135,51 @@ local OUTPUT_VECTOR = {
 }
 
 ---------------------------------------------------------------------------------------------------
+-- Electric pole supply areas
+---------------------------------------------------------------------------------------------------
+
+-- Supply area "radius" of a pole prototype at a quality level. Falls back to the normal quality
+-- if the quality argument is not accepted, and to 0 if the prototype has no supply area.
+local function proto_supply_distance(proto, quality_name)
+  local ok, d = pcall(function() return proto.get_supply_area_distance(quality_name) end)
+  if ok and d then return d end
+  ok, d = pcall(function() return proto.get_supply_area_distance() end)
+  return (ok and d) or 0
+end
+
+-- Largest supply radius of any pole at any quality. Used as the margin when searching for poles.
+local MAX_SUPPLY = 0
+for _, proto in pairs(prototypes.get_entity_filtered{ { filter = "type", type = "electric-pole" } }) do
+  for _, quality in pairs(prototypes.quality) do
+    MAX_SUPPLY = math.max(MAX_SUPPLY, proto_supply_distance(proto, quality.name))
+  end
+end
+
+local supply_cache = {}
+local function supply_distance(pole)
+  local quality = pole.quality.name
+  local key = pole.name .. "/" .. quality
+  local d = supply_cache[key]
+  if not d then
+    d = proto_supply_distance(pole.prototype, quality)
+    supply_cache[key] = d
+  end
+  return d
+end
+
+---------------------------------------------------------------------------------------------------
 -- Storage
 --
 -- storage.transformers[unit_number] = {
 --   shell = LuaEntity, input = LuaEntity, output = LuaEntity, heat = LuaEntity | nil,
+--   in_pole = LuaEntity, out_pole = LuaEntity   (hidden connection poles, one per end),
 --   info = shells[...], bucket = index, last_tick = tick of last update,
 --   out_size = output buffer size (constant, cached to save an API call per update),
 --   s_load / s_power / s_temp = last values written to the circuit (nil = nothing written yet),
 --   next_alert = first tick at which another overheating alert may be raised,
 -- }
 -- storage.buckets[i][unit_number] = same record table
+-- storage.overlays[player_index] = { surface_index, objects = { [pole unit_number] = LuaRenderObject } }
 ---------------------------------------------------------------------------------------------------
 
 -- Spread all records over N buckets. Called whenever the bucket count differs from N
@@ -153,8 +204,8 @@ end
 -- Hidden helpers
 ---------------------------------------------------------------------------------------------------
 
--- side = 1 for the output half, -1 for the input half.
-local function create_half(shell, name, side)
+-- Creates a hidden entity on one end of the shell. side = 1 for the output end, -1 for the input end.
+local function create_at_end(shell, name, side)
   local v = OUTPUT_VECTOR[shell.direction] or OUTPUT_VECTOR[north]
   local d = C.half_offset * side
   local pos = shell.position
@@ -181,6 +232,81 @@ local function create_heat(shell, info)
   }
 end
 
+local POLE_COPPER = defines.wire_connector_id.pole_copper
+
+-- Copper wires of a pole as { { owner = LuaEntity, origin = wire origin }, ... }.
+local function pole_wires(pole)
+  local wires = {}
+  local conn = pole.get_wire_connector(POLE_COPPER, true)
+  if conn then
+    for _, c in pairs(conn.connections) do
+      local owner = c.target.owner
+      if owner.valid then wires[#wires + 1] = { owner = owner, origin = c.origin } end
+    end
+  end
+  return wires
+end
+
+-- Puts wires taken with pole_wires() onto another pole. Wires that are out of reach are skipped.
+local function restore_wires(pole, wires)
+  local conn = pole.get_wire_connector(POLE_COPPER, true)
+  if not conn then return end
+  for _, w in ipairs(wires) do
+    if w.owner.valid then
+      local other = w.owner.get_wire_connector(POLE_COPPER, true)
+      if other then conn.connect_to(other, true, w.origin) end
+    end
+  end
+end
+
+-- The record of the transformer a connection pole belongs to, or nil.
+local function rec_of_pole(pole)
+  local pos = pole.position
+  local best, best_d
+  for _, e in pairs(pole.surface.find_entities_filtered{
+    position = pos, radius = C.half_offset + 0.5, type = "constant-combinator",
+  }) do
+    if shells[e.name] then
+      local dx, dy = e.position.x - pos.x, e.position.y - pos.y
+      local d = dx * dx + dy * dy
+      if not best_d or d < best_d then best, best_d = e, d end
+    end
+  end
+  local rec = best and storage.transformers[best.unit_number] or nil
+  if rec and (rec.in_pole == pole or rec.out_pole == pole) then return rec end
+  return nil
+end
+
+-- The connection poles have a wire reach of C.pole_reach, so an electric pole that was just built
+-- (and auto-connected by the engine) can easily have been wired to BOTH ends of one transformer,
+-- which would join its input and output networks. Keep the nearest end, cut the other.
+-- Wires the player makes by hand are left alone.
+local function separate_ends(pole)
+  local conn = pole.get_wire_connector(POLE_COPPER, true)
+  if not conn then return end
+
+  local by_rec = {}
+  for _, c in pairs(conn.connections) do
+    local owner = c.target.owner
+    if owner.valid and owner.name == POLE_NAME then
+      local rec = rec_of_pole(owner)
+      if rec then
+        local list = by_rec[rec]
+        if not list then list = {}; by_rec[rec] = list end
+        local dx, dy = owner.position.x - pole.position.x, owner.position.y - pole.position.y
+        list[#list + 1] = { target = c.target, origin = c.origin, d = dx * dx + dy * dy }
+      end
+    end
+  end
+
+  for _, list in pairs(by_rec) do
+    if #list > 1 then
+      table.sort(list, function(a, b) return a.d < b.d end)
+      for i = 2, #list do conn.disconnect_from(list[i].target, list[i].origin) end
+    end
+  end
+end
+
 local function fill_buffer(half)
   half.energy = half.electric_buffer_size
 end
@@ -192,20 +318,27 @@ local function ensure_halves(rec)
   local shell, info = rec.shell, rec.info
 
   if not (rec.input and rec.input.valid) then
-    rec.input = create_half(shell, info.in_name, -1)
+    rec.input = create_at_end(shell, info.in_name, -1)
   end
   if not (rec.output and rec.output.valid) then
-    rec.output = create_half(shell, info.out_name, 1)
+    rec.output = create_at_end(shell, info.out_name, 1)
     if rec.output then
       fill_buffer(rec.output)
       rec.out_size = rec.output.electric_buffer_size
     end
+  end
+  if not (rec.in_pole and rec.in_pole.valid) then
+    rec.in_pole = create_at_end(shell, POLE_NAME, -1)
+  end
+  if not (rec.out_pole and rec.out_pole.valid) then
+    rec.out_pole = create_at_end(shell, POLE_NAME, 1)
   end
   if info.heat and not (rec.heat and rec.heat.valid) then
     rec.heat = create_heat(shell, info)
   end
 
   local ok = rec.input and rec.input.valid and rec.output and rec.output.valid
+             and rec.in_pole and rec.in_pole.valid and rec.out_pole and rec.out_pole.valid
   if ok and info.heat then ok = rec.heat and rec.heat.valid end
   return ok and true or false
 end
@@ -222,9 +355,24 @@ local function rebuild_halves(rec)
   if input and input.valid then input.destroy() end
   if output and output.valid then output.destroy() end
   if heat and heat.valid then heat.destroy() end
+  -- The poles move with the ends. Each keeps its role (input / output) and its wires: they are
+  -- taken off the old pole and put on the new one. Wires that no longer reach are dropped.
+  local wires = {}
+  for _, key in ipairs{ "in_pole", "out_pole" } do
+    local pole = rec[key]
+    if pole and pole.valid then
+      wires[key] = pole_wires(pole)
+      pole.destroy()
+    end
+    rec[key] = nil
+  end
   rec.input, rec.output, rec.heat = nil, nil, nil
 
   if not ensure_halves(rec) then return end
+
+  for key, list in pairs(wires) do
+    if rec[key] then restore_wires(rec[key], list) end
+  end
 
   -- ensure_halves() started the new output half full; put the old charge back.
   if in_energy then
@@ -315,6 +463,8 @@ local function unregister(unit_number)
   if rec.input and rec.input.valid then rec.input.destroy() end
   if rec.output and rec.output.valid then rec.output.destroy() end
   if rec.heat and rec.heat.valid then rec.heat.destroy() end
+  if rec.in_pole and rec.in_pole.valid then rec.in_pole.destroy() end
+  if rec.out_pole and rec.out_pole.valid then rec.out_pole.destroy() end
 end
 
 local function init_storage()
@@ -328,7 +478,7 @@ local function init_storage()
     storage.version = STORAGE_VERSION
     rebuild_buckets()
     for _, rec in pairs(old) do
-      for _, key in ipairs{ "input", "output", "heat" } do
+      for _, key in ipairs{ "input", "output", "heat", "in_pole", "out_pole" } do
         local e = rec[key]
         if e and e.valid then e.destroy() end
       end
@@ -473,6 +623,62 @@ local function on_tick(event)
 end
 
 ---------------------------------------------------------------------------------------------------
+-- Placement rule: not inside the supply area of an electric pole
+---------------------------------------------------------------------------------------------------
+
+-- Returns an electric pole whose supply area overlaps the footprint of a transformer standing at
+-- pos with the given direction, or nil. The hidden poles of transformers do not count.
+local function find_covering_pole(surface, pos, direction)
+  local vertical = (direction == east or direction == west)
+  local hx = vertical and C.footprint.short or C.footprint.long
+  local hy = vertical and C.footprint.long or C.footprint.short
+  local margin = MAX_SUPPLY + 1
+
+  local poles = surface.find_entities_filtered{
+    area = { { pos.x - hx - margin, pos.y - hy - margin }, { pos.x + hx + margin, pos.y + hy + margin } },
+    type = "electric-pole",
+  }
+  for _, pole in pairs(poles) do
+    if not hidden_names[pole.name] then
+      local d = supply_distance(pole)
+      local p = pole.position
+      if p.x - d < pos.x + hx - EPS and p.x + d > pos.x - hx + EPS
+         and p.y - d < pos.y + hy - EPS and p.y + d > pos.y - hy + EPS then
+        return pole
+      end
+    end
+  end
+  return nil
+end
+
+-- Tells the player (flying text) or, without a player, the force (chat message with a map tag).
+local function notify(player, force, surface, pos, message)
+  if player and player.valid then
+    player.create_local_flying_text{ text = message, position = pos }
+  else
+    force.print({ "", message, " ", string.format("[gps=%d,%d,%s]", pos.x, pos.y, surface.name) })
+  end
+end
+
+-- Undoes a build: the entity (or ghost) disappears and the item goes back to the player, or onto
+-- the ground when the player's inventory is full or a robot / script built it.
+local function reject_build(entity, event)
+  local surface, pos, force = entity.surface, entity.position, entity.force
+  local is_ghost = entity.type == "entity-ghost"
+  local item = is_ghost and entity.ghost_name or entity.name
+  local quality = entity.quality.name
+  local player = event.player_index and game.get_player(event.player_index) or nil
+
+  entity.destroy()
+  notify(player, force, surface, pos, { "pt-message.in-pole-area" })
+  if is_ghost then return end
+
+  local stack = { name = item, count = 1, quality = quality }
+  if player and player.valid and player.insert(stack) >= 1 then return end
+  surface.create_entity{ name = "item-on-ground", position = pos, stack = stack }
+end
+
+---------------------------------------------------------------------------------------------------
 -- Rotation
 ---------------------------------------------------------------------------------------------------
 
@@ -483,8 +689,134 @@ local function on_player_rotated_entity(event)
   local entity = event.entity
   if not (entity and entity.valid and shells[entity.name]) then return end
 
+  -- The turned footprint must not newly reach into a pole's supply area. A transformer that is
+  -- already inside one (a pole built next to it later) can still be rotated.
+  if not find_covering_pole(entity.surface, entity.position, event.previous_direction)
+     and find_covering_pole(entity.surface, entity.position, entity.direction) then
+    entity.direction = event.previous_direction
+    notify(game.get_player(event.player_index), entity.force, entity.surface, entity.position,
+      { "pt-message.in-pole-area" })
+    return
+  end
+
   local rec = storage.transformers[entity.unit_number]
   if rec then rebuild_halves(rec) end
+end
+
+---------------------------------------------------------------------------------------------------
+-- Held-item overlay
+--
+-- The engine only shows the supply areas of electric poles while the cursor holds an entity with an
+-- electric energy source, which a transformer shell (a constant combinator) has not. So while a
+-- transformer item (or its ghost) is in the cursor, the supply areas of the poles around the
+-- player are drawn by script, visible to that player only. Those are exactly the areas a
+-- transformer cannot be built in. Nothing runs while nobody holds a transformer.
+---------------------------------------------------------------------------------------------------
+
+local function get_overlays()
+  local overlays = storage.overlays
+  if not overlays then
+    overlays = {}
+    storage.overlays = overlays
+  end
+  return overlays
+end
+
+local function holds_transformer(player)
+  local stack = player.cursor_stack
+  if stack and stack.valid_for_read and shells[stack.name] then return true end
+
+  local ghost = player.cursor_ghost
+  if ghost then
+    local name = ghost.name
+    if type(name) ~= "string" then name = name.name end
+    return shells[name] ~= nil
+  end
+  return false
+end
+
+local function clear_overlay(player_index)
+  local overlays = get_overlays()
+  local overlay = overlays[player_index]
+  if not overlay then return end
+  for _, object in pairs(overlay.objects) do
+    if object.valid then object.destroy() end
+  end
+  overlays[player_index] = nil
+end
+
+-- Brings the drawn rectangles in line with the poles around the player: draws the missing ones
+-- and removes the ones whose pole is gone or out of range. Unchanged poles cost nothing.
+local function refresh_overlay(player)
+  local overlays = get_overlays()
+  local overlay = overlays[player.index]
+  if overlay and overlay.surface_index ~= player.surface_index then
+    clear_overlay(player.index)
+    overlay = nil
+  end
+  if not overlay then
+    overlay = { surface_index = player.surface_index, objects = {} }
+    overlays[player.index] = overlay
+  end
+
+  local surface = player.surface
+  local seen = {}
+  for _, pole in pairs(surface.find_entities_filtered{
+    position = player.position, radius = OVERLAY_RADIUS, type = "electric-pole",
+  }) do
+    if not hidden_names[pole.name] then
+      local id = pole.unit_number
+      seen[id] = true
+      if not overlay.objects[id] then
+        local d = supply_distance(pole)
+        local p = pole.position
+        overlay.objects[id] = rendering.draw_rectangle{
+          color = OVERLAY_COLOR,
+          filled = true,
+          left_top = { p.x - d, p.y - d },
+          right_bottom = { p.x + d, p.y + d },
+          surface = surface,
+          players = { player },
+          draw_on_ground = true,
+        }
+      end
+    end
+  end
+
+  for id, object in pairs(overlay.objects) do
+    if not seen[id] then
+      if object.valid then object.destroy() end
+      overlay.objects[id] = nil
+    end
+  end
+end
+
+local function on_cursor_stack_changed(event)
+  local player = game.get_player(event.player_index)
+  if not player then return end
+  if holds_transformer(player) then
+    refresh_overlay(player)
+  else
+    clear_overlay(player.index)
+  end
+end
+
+local function on_overlay_tick()
+  local overlays = storage.overlays
+  if not overlays or next(overlays) == nil then return end
+
+  for player_index in pairs(overlays) do
+    local player = game.get_player(player_index)
+    if player and player.valid and player.connected and holds_transformer(player) then
+      refresh_overlay(player)
+    else
+      clear_overlay(player_index)
+    end
+  end
+end
+
+local function on_player_gone(event)
+  clear_overlay(event.player_index)
 end
 
 ---------------------------------------------------------------------------------------------------
@@ -493,9 +825,31 @@ end
 
 local function on_built(event)
   local entity = event.entity
-  if entity and entity.valid and shells[entity.name] then
-    register(entity)
+  if not (entity and entity.valid) then return end
+  local name = entity.name
+
+  -- A transformer ghost is refused right away where the real thing could not be built.
+  if name == "entity-ghost" then
+    if shells[entity.ghost_name]
+       and find_covering_pole(entity.surface, entity.position, entity.direction) then
+      reject_build(entity, event)
+    end
+    return
   end
+
+  -- A new electric pole: the engine may have auto-connected it to both ends of a transformer.
+  if entity.type == "electric-pole" then
+    if not hidden_names[name] then separate_ends(entity) end
+    return
+  end
+
+  if not shells[name] then return end
+
+  if find_covering_pole(entity.surface, entity.position, entity.direction) then
+    reject_build(entity, event)
+    return
+  end
+  register(entity)
 end
 
 -- Cloning (e.g. surface.clone_area, space platform tools) may copy the hidden helpers too.
@@ -549,6 +903,11 @@ script.on_event(defines.events.on_object_destroyed, on_object_destroyed)
 script.on_event(defines.events.on_player_rotated_entity, on_player_rotated_entity)
 script.on_event(defines.events.on_runtime_mod_setting_changed, on_runtime_mod_setting_changed)
 script.on_event(defines.events.on_tick, on_tick)
+
+script.on_event(defines.events.on_player_cursor_stack_changed, on_cursor_stack_changed)
+script.on_event(defines.events.on_player_left_game, on_player_gone)
+script.on_event(defines.events.on_player_removed, on_player_gone)
+script.on_nth_tick(OVERLAY_INTERVAL, on_overlay_tick)
 
 script.on_init(init_storage)
 script.on_configuration_changed(init_storage)
