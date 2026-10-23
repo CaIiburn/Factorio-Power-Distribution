@@ -1,0 +1,5 @@
+require("prototypes.poles")
+require("prototypes.ports")
+require("prototypes.items")
+require("prototypes.technology")
+require("prototypes.tools")

@@ -1,0 +1,9 @@
+{
+  "name": "pole-classes",
+  "version": "0.1.0",
+  "title": "Pole Classes",
+  "author": "unknown",
+  "factorio_version": "2.1",
+  "dependencies": ["base >= 2.1.0"],
+  "description": "Replaces vanilla power poles with four pole families (feeder, pylon, distribution, auxiliary) in six tiers each. Poles only wire to their own class, supply areas may not touch the wrong kind of entity, and networks have tier-scaled size caps. Transformers bridge the classes."
+}

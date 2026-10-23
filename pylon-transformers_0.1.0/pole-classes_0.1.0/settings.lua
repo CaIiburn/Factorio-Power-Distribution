@@ -1,0 +1,42 @@
+data:extend({
+  {
+    type = "double-setting",
+    name = "pc-network-cap-multiplier",
+    setting_type = "startup",
+    default_value = 1,
+    minimum_value = 0.25,
+    maximum_value = 10,
+    order = "a",
+  },
+  {
+    type = "bool-setting",
+    name = "pc-enforce-script-built",
+    setting_type = "startup",
+    default_value = false,
+    order = "b",
+  },
+  {
+    type = "string-setting",
+    name = "pc-autowire-mode",
+    setting_type = "runtime-per-user",
+    default_value = "chain",
+    allowed_values = { "chain", "nearest", "off" },
+    order = "a",
+  },
+  {
+    type = "bool-setting",
+    name = "pc-show-zones",
+    setting_type = "runtime-per-user",
+    default_value = true,
+    order = "b",
+  },
+  {
+    type = "int-setting",
+    name = "pc-zone-radius",
+    setting_type = "runtime-per-user",
+    default_value = 40,
+    minimum_value = 16,
+    maximum_value = 96,
+    order = "c",
+  },
+})
