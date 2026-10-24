@@ -5,10 +5,13 @@
 --   2 hidden heat pipes     - only for heat tiers (C.heat.tiers); horizontal and vertical variant
 --   1 item and 1 recipe
 -- plus the virtual signals and one technology per tier.
-local C = require("config")
-local Recipes = require("recipes")
-local Technologies = require("technologies")
-local Sprites = require("sprites")  -- ported Electric Grid art, see THIRD_PARTY_LICENSE.txt
+--
+-- The two hidden connection poles of a transformer (its ports) are shared prototypes defined in
+-- prototypes/ports.lua; which port sits on which end is set by C.ports.
+local C = require("__pylon-transformers__.config")
+local Recipes = require("__pylon-transformers__.recipes")
+local Technologies = require("__pylon-transformers__.technologies")
+local Sprites = require("__pylon-transformers__.sprites")  -- ported Electric Grid art, see THIRD_PARTY_LICENSE.txt
 local recipes = Recipes.generate(C)
 
 -- Update interval from settings.lua; used to size buffers.
@@ -135,31 +138,6 @@ out[#out + 1] = signal(C.signal.temperature, "c[temperature]", { r = 1.0, g = 0.
 -- Hidden entities: not selectable, not blueprintable, no collision.
 local hidden_flags = { "placeable-off-grid", "not-on-map", "not-blueprintable", "not-deconstructable",
                        "not-repairable", "not-rotatable", "not-flammable" }
-
--- Connection pole. One prototype serves every transformer: it only depends on the offsets in
--- config.lua. The tiny supply area reaches just the electric half at its end, it never connects
--- itself to anything (auto_connect_up_to_n_wires = 0), and it can be selected so the player can
--- wire it. Hidden from lists and Factoriopedia, not minable, not blueprintable.
-out[#out + 1] = {
-  type = "electric-pole",
-  name = C.pole_name,
-  icon = icon_path(C.shell_name("up", 1, "small")), icon_size = 128,
-  flags = hidden_flags,
-  hidden = true,
-  hidden_in_factoriopedia = true,
-  max_health = 100,
-  collision_box = { { -C.half_box, -C.half_box }, { C.half_box, C.half_box } },
-  collision_mask = { layers = {} },
-  selection_box = { { -C.pole_select, -C.pole_select }, { C.pole_select, C.pole_select } },
-  selection_priority = 60,  -- above the shell (50), so the pole can be picked at the end of it
-  allow_copy_paste = false,
-  supply_area_distance = C.pole_supply,
-  maximum_wire_distance = C.pole_reach,
-  auto_connect_up_to_n_wires = 0,
-  pictures = { filename = EMPTY.filename, width = 1, height = 1, direction_count = 1 },
-  connection_points = { { wire = { copper = { 0, 0 } }, shadow = { copper = { 0, 0 } } } },
-  draw_circuit_wires = false,
-}
 
 for _, kind in ipairs(C.kinds) do
   for tier, tier_data in ipairs(C.tiers) do

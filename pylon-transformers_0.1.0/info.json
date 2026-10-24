@@ -4,6 +4,6 @@
   "title": "Pylon Transformers",
   "author": "0x1337caliburn",
   "factorio_version": "2.1",
-  "dependencies": ["base >= 2.0.0"],
-  "description": "One-directional step-up / step-down transformers with idle, conversion losses."
+  "dependencies": ["base >= 2.1.0"],
+  "description": "Power pole classes (feeder, pylon, distribution, auxiliary) in six tiers, plus step-up / step-down transformers that bridge them, with idle and conversion losses, circuit output and heat."
 }

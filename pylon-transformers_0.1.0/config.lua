@@ -8,19 +8,32 @@ C.kinds = {"up", "down"}
 C.half_offset = 1.8
 C.half_box = 0.1
 
--- Connection poles, one on each end of the shell, at the same spot as the electric halves.
--- They are the only link between a transformer and the outside grid, and the player wires them
--- by hand with copper wire (they are selectable, but cannot be mined or blueprinted):
---   * the supply area is just big enough to cover the half at their end (and nothing else, not
---     even the half of a transformer that is built end to end with this one),
---   * auto_connect_up_to_n_wires is 0, so a pole never wires itself to anything when it is
---     created. The two poles of one transformer therefore start out unconnected, although they
---     are well within wire reach of each other (2 * half_offset = 3.6 apart),
---   * the selection box is a small square around the pole, drawn above the shell's own.
-C.pole_name = "pt-hidden-pole"
-C.pole_supply = 0.25   -- supply_area_distance
-C.pole_reach = 9       -- maximum_wire_distance
-C.pole_select = 0.3    -- half size of the selection box
+-- Ports: one hidden pole on each end of the shell, at the same spot as the electric half of that
+-- end. They are the link between a transformer and the outside grid. Each port belongs to a pole
+-- class (see C.pole below), so only poles of that class can be wired to it:
+--   step-up:   input = feeder port,  output = pylon port
+--   step-down: input = pylon port,   output = distribution port
+-- The player wires them by hand with copper wire (they are selectable, but cannot be mined or
+-- blueprinted), and new poles of the right class wire to them like to any other pole.
+--   * port_supply: the supply area is just big enough to cover the half at the port's end. It stays
+--     inside the shell's end, so it never touches a neighbouring entity and never reaches the half
+--     of a transformer that is built end to end with this one,
+--   * port_reach: wire reach. A pole's supply area may not touch a transformer, so a pole has to
+--     stand at least its supply half-width away from the shell. The widest half-width of any pole
+--     is 15 (large distribution, tier 6), so 16 lets every pole tier connect,
+--   * the ports never wire themselves to anything when they are created (auto_connect_up_to_n_wires
+--     is 0), so the two ports of one transformer start out unconnected,
+--   * the selection box is a small square around the port, drawn above the shell's own.
+C.port_supply = 0.15   -- supply_area_distance
+C.port_reach = 16      -- maximum_wire_distance
+C.port_select = 0.3    -- half size of the selection box
+C.port_priority = 80   -- selection priority, above the shell (50)
+
+-- Port prototype name of each end of a transformer kind.
+C.ports = {
+  up   = { input = "pc-port-feeder-in",  output = "pc-port-pylon-out" },
+  down = { input = "pc-port-pylon-in",   output = "pc-port-distribution-out" },
+}
 
 -- Half extents of the area a transformer occupies, long axis first (the halves stick out a little
 -- past the shell's collision box). Used for the "not inside a pole's supply area" rule.
@@ -181,5 +194,150 @@ function C.heat_name(kind, tier, size, vertical)
   return C.shell_name(kind, tier, size) .. (vertical and "-heat-v" or "-heat-h")
 end
 
+---------------------------------------------------------------------------------------------------
+-- Pole classes
+---------------------------------------------------------------------------------------------------
+--
+-- Replaces the four vanilla poles with pole classes. Poles only wire to poles of their own class;
+-- the transformer ports above bridge the classes. Pure data plus a few helpers, shared by the data
+-- stage and the control stage. The only global it touches is `settings` (startup settings), lazily.
+local P = {}
+C.pole = P
+
+P.TIER_COUNT = 6
+P.PREFIX = "pc-"
+
+-- Pole classes. Poles only wire to poles of their own class.
+P.CLASSES = { "feeder", "pylon", "distribution", "aux" }
+
+-- Pole families. `area` is the FULL side length of the supply area in tiles
+-- (supply_area_distance = side / 2, measured from the pole centre).
+-- Pylons have no meaningful supply area: see PYLON_SUPPLY_DISTANCE.
+-- `reach` is the maximum wire distance in tiles.
+--
+-- Large distribution: reach == area, scaling 10 -> 30.
+-- Small distribution: reach == area + 2.
+P.FAMILIES = {
+  {
+    id = "feeder", class = "feeder", size = 2, base = "big-electric-pole",
+    color = { 1.0, 0.62, 0.2 }, stack = 50, order = "a",
+    area = { 6, 8, 10, 12, 14, 16 },
+    reach = { 16, 20, 24, 28, 32, 36 },
+  },
+  {
+    id = "pylon", class = "pylon", size = 1, base = "medium-electric-pole",
+    color = { 0.55, 0.75, 1.0 }, stack = 50, order = "b",
+    area = nil,
+    reach = { 40, 45, 50, 55, 60, 64 },
+  },
+  {
+    id = "distribution-large", class = "distribution", size = 2, base = "substation",
+    color = { 0.5, 1.0, 0.55 }, stack = 50, order = "c",
+    area = { 10, 14, 18, 22, 26, 30 },
+    reach = { 10, 14, 18, 22, 26, 30 },
+  },
+  {
+    id = "distribution-small", class = "distribution", size = 1, base = "small-electric-pole",
+    color = { 0.35, 0.9, 0.85 }, stack = 100, order = "d",
+    area = { 5, 7, 9, 11, 13, 15 },
+    reach = { 7, 9, 11, 13, 15, 17 },
+  },
+  {
+    id = "aux", class = "aux", size = 1, base = "small-electric-pole",
+    color = { 0.8, 0.55, 1.0 }, stack = 100, order = "e",
+    area = { 3, 3, 5, 5, 7, 7 },
+    reach = { 6, 8, 10, 12, 14, 16 },
+  },
+}
+
+-- Pylons "have no supply area". The engine may or may not accept 0, so the
+-- smallest value that cannot cover any other entity is used: half a tile
+-- covers exactly the pylon's own tile. Set to 0 if your build accepts it.
+P.PYLON_SUPPLY_DISTANCE = 0.5
+
+-- Hidden "port" poles that live inside transformers (see C.ports). One per (class, role).
+-- role "in"  = power flows from the network into the transformer
+-- role "out" = the transformer injects power into the network
+-- step-up   transformer: feeder-in  + pylon-out
+-- step-down transformer: pylon-in   + distribution-out
+P.PORTS = {
+  { name = C.ports.up.input,    class = "feeder",       role = "in"  },
+  { name = C.ports.up.output,   class = "pylon",        role = "out" },
+  { name = C.ports.down.input,  class = "pylon",        role = "in"  },
+  { name = C.ports.down.output, class = "distribution", role = "out" },
+}
+P.PORT_SUPPLY_DISTANCE = C.port_supply
+P.PORT_REACH = C.port_reach
+
+-- Maximum number of transformer OUTPUT ports per network. Inputs are unlimited.
+-- Feeder networks never receive transformer outputs.
+P.OUTPUT_LIMIT = { feeder = 0, pylon = 2, distribution = 2, aux = 0 }
+
+-- Pole-count cap per network, by tier. A network is limited by its weakest pole.
+-- Pylon lines have no gameplay cap (transformer outputs limit them); the
+-- number here is only a performance guard for graph walks.
+P.NETWORK_CAP = {
+  feeder       = { 16, 24, 36, 52, 72, 96 },
+  distribution = { 24, 36, 52, 72, 96, 128 },
+  aux          = { 8, 12, 16, 24, 32, 48 },
+  pylon        = { 400, 400, 400, 400, 400, 400 },
+}
+
+-- Wires per pole. MAX_DEGREE is the hard limit for any wire (manual or auto);
+-- AUTO_DEGREE is how full a pole may be to still accept an automatic wire;
+-- AUTO_CONNECTIONS is how many wires a freshly built pole makes by itself.
+P.MAX_DEGREE       = { feeder = 6, pylon = 4, distribution = 6, aux = 6 }
+P.AUTO_DEGREE      = { feeder = 2, pylon = 2, distribution = 3, aux = 2 }
+P.AUTO_CONNECTIONS = { feeder = 1, pylon = 1, distribution = 2, aux = 1 }
+
+function P.name(family_id, tier)
+  return P.PREFIX .. family_id .. "-" .. tier
+end
+
+-- Flat list of every pole definition, in a stable order.
+P.POLES = {}
+P.FAMILY_BY_ID = {}
+for _, fam in ipairs(P.FAMILIES) do
+  P.FAMILY_BY_ID[fam.id] = fam
+  for tier = 1, P.TIER_COUNT do
+    local area = fam.area and fam.area[tier]
+    P.POLES[#P.POLES + 1] = {
+      name = P.name(fam.id, tier),
+      family = fam.id,
+      class = fam.class,
+      tier = tier,
+      size = fam.size,
+      area = area,                                       -- full side, nil for pylons
+      distance = area and (area / 2) or P.PYLON_SUPPLY_DISTANCE,
+      reach = fam.reach[tier],
+      has_area = fam.class ~= "pylon",
+    }
+  end
+end
+
+local cap_multiplier
+local function multiplier()
+  if cap_multiplier then return cap_multiplier end
+  cap_multiplier = 1
+  if settings and settings.startup and settings.startup["pc-network-cap-multiplier"] then
+    cap_multiplier = settings.startup["pc-network-cap-multiplier"].value
+  end
+  return cap_multiplier
+end
+
+-- Pole-count cap of one pole of this class and tier, after the startup multiplier.
+function P.cap(class, tier)
+  local base = P.NETWORK_CAP[class][tier]
+  return math.max(2, math.floor(base * multiplier() + 0.5))
+end
+
+function P.max_cap(class)
+  return P.cap(class, P.TIER_COUNT)
+end
+
+-- Used by tests that change the settings between runs.
+function P.reset_cache()
+  cap_multiplier = nil
+end
 
 return C
