@@ -147,7 +147,7 @@ function P.check_built(entity, name, ctx)
 
   if lookup.restricting[name] then
     local pole, info = P.entity_conflict(entity, name)
-    if pole then
+    if pole and info then
       local pole_name = info.name or pole.name
       local msg = { "pc.reject-entity", entity.localised_name or name,
                     pole.localised_name or pole_name, notify.gps(entity.surface, entity.position) }
