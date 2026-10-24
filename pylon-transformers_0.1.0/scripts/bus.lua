@@ -7,6 +7,7 @@
 --
 -- A library is a table with any of these fields:
 --   events                    { [event id or custom input name] = function(event) }
+--   event_filters             { [event id] = { engine event filters } }, for entries of `events`
 --   on_nth_tick               { [ticks] = function(event) }
 --   on_init, on_load, on_configuration_changed   function()
 --   remote_interfaces         { [interface name] = { function name -> function } }
@@ -21,9 +22,16 @@
 -- type of all libraries together, so nothing runs for an entity nobody asked for. A handler is
 -- called for everything that passes the combined filter and must pick out its own entities.
 -- Build events must not also be listed under `events`.
+--
+-- Filters of `events` entries: an event is registered with the union of the filters of all
+-- libraries that handle it. If any of them handles the event without a filter, it is registered
+-- without one. Either way a handler can be called for an event that passes another library's
+-- filter and must check that it is its own.
 local Bus = {}
 
 local events = {}
+local event_filters = {}      -- event id -> list of filters, only while every handler has a filter
+local unfiltered = {}         -- event id -> true when some handler has none
 local nth_tick = {}
 local on_init, on_load, on_configuration_changed = {}, {}, {}
 local remote_interfaces = {}
@@ -49,8 +57,20 @@ local function push(map, key, fn)
   list[#list + 1] = fn
 end
 
+-- Adds the filters of one handler to the union for its event.
+local function add_filters(id, filters)
+  if not filters then
+    unfiltered[id] = true
+    return
+  end
+  for _, f in ipairs(filters) do push(event_filters, id, f) end
+end
+
 function Bus.add_library(lib)
-  for id, fn in pairs(lib.events or {}) do push(events, id, fn) end
+  for id, fn in pairs(lib.events or {}) do
+    push(events, id, fn)
+    add_filters(id, lib.event_filters and lib.event_filters[id])
+  end
   for ticks, fn in pairs(lib.on_nth_tick or {}) do push(nth_tick, ticks, fn) end
   if lib.on_init then on_init[#on_init + 1] = lib.on_init end
   if lib.on_load then on_load[#on_load + 1] = lib.on_load end
@@ -112,7 +132,14 @@ end
 
 -- Registers everything with the engine. Call once, at the end of control.lua.
 function Bus.install()
-  for id, list in pairs(events) do script.on_event(id, chain(list)) end
+  for id, list in pairs(events) do
+    local filters = (not unfiltered[id]) and event_filters[id] or nil
+    if filters and #filters > 0 then
+      script.on_event(id, chain(list), filters)
+    else
+      script.on_event(id, chain(list))
+    end
+  end
   for ticks, list in pairs(nth_tick) do script.on_nth_tick(ticks, chain(list)) end
   install_builds()
 

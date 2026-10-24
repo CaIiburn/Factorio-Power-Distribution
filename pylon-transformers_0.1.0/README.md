@@ -50,11 +50,20 @@ Two kinds, **step-up** and **step-down**, each in 3 sizes (small, medium, large)
 | Step-down | pylon | distribution pole (large or small) |
 
 * **One entity each.** A transformer is a single 4x2 building (2x4 when turned sideways). It can be blueprinted and upgraded with the upgrade planner or fast replace, which advances the tier and keeps the size and the direction.
-* **Ports.** Each end has a hidden pole, its *port*, of the matching class: `pc-port-feeder-in`, `pc-port-pylon-out`, `pc-port-pylon-in`, `pc-port-distribution-out`. Poles of that class wire to the port like to any other pole (by hand, or automatically with the autowire modes above). Wires from any other class are cut. Ports reach 16 tiles, enough for every pole tier to connect from outside its own supply area.
+* **Ports.** Each end has a hidden pole, its *port*, of the matching class: `pc-port-feeder-in`, `pc-port-pylon-out`, `pc-port-pylon-in`, `pc-port-distribution-out`. Poles of that class wire to the port like to any other pole (by hand, or automatically). Wires from any other class are cut. Ports reach 16 tiles, enough for every pole tier to connect from outside its own supply area. See [Port wiring](#port-wiring).
 * **Not inside a pole's supply area.** A transformer cannot be built, ghosted or rotated into the supply area of **any** electric pole (all pole classes, hidden vanilla poles and poles of other mods; pole ghosts count). The other way round, a pole of this mod cannot be placed with a supply area that touches a transformer. While a transformer is held, the supply areas of nearby poles are drawn.
 * **Rotation.** The input is one end of the building, the output the other end. See [Rotation](#rotation).
 * **Tooltip** shows the maximum output power, the idle loss and the conversion loss (and, for heat tiers, the cooling load and the explosion temperature).
 * **Circuit network.** Connect a circuit wire to the transformer to read `pt-load` (delivered output, % of rated), `pt-power` (kW) and, for heat tiers, `pt-temperature` (degrees C). The values are updated every update interval and only written when they change.
+
+### Port wiring
+
+* **Pole first, transformer second.** A new transformer wires its ports to the nearest poles of their class, the same way a new pole wires itself to the poles around it (setting `pc-autowire-mode`; `off` wires nothing; robots and scripts always use `nearest`). A port takes open line ends first, then the nearest pole that has a free wire. It respects the pole cap and the output limit (a third output on a pylon line or distribution network is not wired) and never joins another transformer's port by itself. Feeder and pylon ports make one wire, distribution ports up to two.
+* **Transformer first, pole second.** A new pole wires itself to a port in reach like to any other pole.
+* **Blueprints.** The ports are hidden, so no blueprint contains them. The wires between a port and its poles are saved as **tags on the transformer** instead: in a blueprint or blueprint book, only wires to poles (and transformer ports) that are part of the blueprint, so a transformer copied alone is autowired when it is pasted. Pasting the blueprint, or ghosts and robots building it, makes the same wires again. A rotated blueprint wires the same poles, because the wires are saved relative to the transformer's own direction.
+* **Robots build in any order.** When a transformer is built before one of its poles, the wire is remembered and made as soon as a pole of that class is built at that spot. A pole that gets such a wire counts as already wired and is not autowired.
+* **Destroyed transformers.** When a transformer dies (shot, or exploded by overheating) and the force builds ghosts of dead entities, the port wires go onto the ghost the same way. Robots rebuild the transformer with its wires.
+* **Tags decide.** A port with wires in its tag is wired only as the tag says. A port with none (or no tag, for example a transformer from an old blueprint or one placed by hand) is autowired.
 
 ### Rotation
 
@@ -141,6 +150,9 @@ A mod that adds its own transformers or poles can classify its entities with a `
 
 ## Known limitations
 
+- Mirrored (flipped) blueprints do not reproduce port wires, because transformers cannot be mirrored: the recorded poles are not found, and the ports are not wired (a port whose tag has wires is not autowired either). Rotation is fine.
+- Fast replace and the upgrade planner make a new transformer, whose ports are autowired like a placed one instead of keeping the old wires.
+- A wire that a blueprint asks for but that is out of reach, or not allowed (pole cap, outputs), is dropped with the usual warning; a wire whose pole never gets built stays remembered until its port is destroyed.
 - Rotation is followed only when a player rotates a transformer. If another mod changes the direction by script, the halves and ports stay on the old ends until the transformer is rebuilt.
 - A pole of another mod that is built next to an existing transformer is not refused (only wires from it to a port are cut); transformers themselves obey the supply-area rule for every pole.
 - `rewire_neighbours_when_destroying` is off: removing a mid-line pole splits the line.
@@ -165,6 +177,9 @@ The data stage and the runtime load were exercised against a stubbed Factorio AP
 11. Can a port wire reach a pole of every tier from outside the pole's supply area (port reach 16, large distribution tier 6 needs 15.1)?
 12. Does a 0.15 supply area connect the port to the half at its end (and to nothing else), including with end-to-end transformers?
 13. Do `type` filters combine with `name` / `ghost_name` filters (as OR) in the combined build filters of `scripts/bus.lua`?
+14. `on_player_setup_blueprint`: does `mapping.get()` hold the transformer shells, and does `stack` / `record` accept `set_blueprint_entity_tag` (also for blueprints inside a book)? Do the tags come back as `event.tags` on build?
+15. Does the ghost of a dead transformer exist in `on_post_entity_died` with `unit_number`, can it take tags, and do robots revive it with them? (Needs the force to build ghosts of dead entities.)
+16. Are the ports still there in `on_entity_died` of the shell (their wires are read then)? And does the overheating explosion (`shell.die()`) raise it?
 
 ## Graphics
 
@@ -183,7 +198,7 @@ Run it again whenever the north sprites change.
 - `prototypes/`: `poles.lua`, `ports.lua`, `pole-items.lua`, `pole-technology.lua`, `wire-tool.lua`, `item-exists.lua` (pole classes), `transformers.lua` (all transformer prototypes)
 - `control.lua`: loads the runtime modules into the event bus
 - `scripts/bus.lua`: event bus
-- `scripts/transformer/`: `common`, `supply`, `ports`, `helpers`, `circuit`, `registry`, `heat`, `transfer`, `placement`, `overlay`
+- `scripts/transformer/`: `common`, `supply`, `ports`, `port_wires`, `helpers`, `circuit`, `registry`, `heat`, `transfer`, `placement`, `overlay`
 - `scripts/poles/`: `lookup`, `state`, `graph`, `placement`, `wires`, `autowire`, `zones`, `tools`, `held`, `notify`, `events`
 - `locale/en/`: `pylon-transformers.cfg`, `pole-classes.cfg`
 - `graphics/`: icons, technology icons and entity sprites

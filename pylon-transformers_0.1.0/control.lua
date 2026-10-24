@@ -33,6 +33,7 @@
 --     common.lua       constants and lookup tables built from config.lua
 --     supply.lua       pole supply areas, find_covering_pole()
 --     ports.lua        registering ports, keeping their wires across a rotation
+--     port_wires.lua   wires of the ports for new transformers: autowire, blueprint / ghost tags
 --     helpers.lua      the hidden entities: HELPERS spec list, ensure / destroy / rebuild
 --     circuit.lua      circuit signals of the shell
 --     registry.lua     storage, buckets, register / unregister, init and migration
@@ -58,7 +59,9 @@
 --
 -- The bus runs on_init / on_load / on_configuration_changed in the order below, so the transformer
 -- registry goes first and storage exists for the others. The transformer placement comes before
--- the pole events: for entities that both care about (cloned ports) it gets the first word.
+-- the pole events: for entities that both care about (cloned ports) it gets the first word. The
+-- port wires come before them too: a new pole first gets the wires that ports are waiting for, and
+-- the pole logic then leaves a pole that has wires alone.
 local Bus = require("__pylon-transformers__.scripts.bus")
 
 Bus.add_libraries{
@@ -67,6 +70,7 @@ Bus.add_libraries{
   require("__pylon-transformers__.scripts.transformer.heat"),
   require("__pylon-transformers__.scripts.transformer.transfer"),
   require("__pylon-transformers__.scripts.transformer.overlay"),
+  require("__pylon-transformers__.scripts.transformer.port_wires").library,
   require("__pylon-transformers__.scripts.poles.events"),
 }
 

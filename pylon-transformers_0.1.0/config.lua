@@ -266,6 +266,8 @@ P.PORTS = {
   { name = C.ports.down.input,  class = "pylon",        role = "in"  },
   { name = C.ports.down.output, class = "distribution", role = "out" },
 }
+P.PORT_NAMES = {}
+for _, port in ipairs(P.PORTS) do P.PORT_NAMES[#P.PORT_NAMES + 1] = port.name end
 P.PORT_SUPPLY_DISTANCE = C.port_supply
 P.PORT_REACH = C.port_reach
 

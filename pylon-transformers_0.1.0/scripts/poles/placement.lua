@@ -81,7 +81,7 @@ function P.reject(entity, ctx, message)
     return true
   end
 
-local proto = entity.prototype
+  local proto = entity.prototype
   local place = proto and proto.items_to_place_this and proto.items_to_place_this[1]
   local item_name = place and (place.name or place.item)
   local quality = entity.quality and entity.quality.name
@@ -147,7 +147,7 @@ function P.check_built(entity, name, ctx)
 
   if lookup.restricting[name] then
     local pole, info = P.entity_conflict(entity, name)
-    if pole and info then
+    if pole then
       local pole_name = info.name or pole.name
       local msg = { "pc.reject-entity", entity.localised_name or name,
                     pole.localised_name or pole_name, notify.gps(entity.surface, entity.position) }

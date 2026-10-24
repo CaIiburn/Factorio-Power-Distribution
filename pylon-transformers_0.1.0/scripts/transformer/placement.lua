@@ -9,6 +9,7 @@ local Supply = require("__pylon-transformers__.scripts.transformer.supply")
 local Helpers = require("__pylon-transformers__.scripts.transformer.helpers")
 local Circuit = require("__pylon-transformers__.scripts.transformer.circuit")
 local Registry = require("__pylon-transformers__.scripts.transformer.registry")
+local PortWires = require("__pylon-transformers__.scripts.transformer.port_wires")
 
 local shells, hidden_names = Common.shells, Common.hidden_names
 local find_covering_pole = Supply.find_covering_pole
@@ -53,8 +54,8 @@ local function on_cloned(entity)
 end
 
 -- A transformer (or its ghost) was built or cloned. `source` is "player", "robot", "platform" or
--- "script", see bus.lua.
-local function on_built(event)
+-- "script", see bus.lua. The tags of the ghost or blueprint it comes from are event.tags.
+local function on_built(event, source)
   if event.destination then
     if event.destination.valid then on_cloned(event.destination) end
     return
@@ -80,6 +81,14 @@ local function on_built(event)
     return
   end
   register(entity)
+
+  -- The ports are new and unwired: wire them as the blueprint / ghost this transformer was built
+  -- from says (event.tags), or to the poles that are already there.
+  local rec = storage.transformers[entity.unit_number]
+  if rec then
+    PortWires.on_transformer_built(rec, event.tags,
+      { player_index = event.player_index, force = entity.force, source = source })
+  end
 end
 
 -- Settings pasted onto a transformer would overwrite its signals: wipe them and rewrite.

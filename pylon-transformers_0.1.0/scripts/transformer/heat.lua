@@ -18,14 +18,17 @@ local ALERT_INTERVAL = C.heat.alert_interval
 local explosions_enabled = settings.global["pt-explosions"].value
 
 -- Kills the shell and damages everything around it. Records the position first, because the shell
--- is gone afterwards. The later on_object_destroyed finds no record and does nothing.
+-- is gone afterwards. The transformer is only unregistered (which destroys its ports) after the
+-- shell has died: while it dies, port_wires.lua reads the wires of the ports and puts them on the
+-- ghost that robots rebuild the transformer from. The later on_object_destroyed finds no record and
+-- does nothing.
 local function explode(rec, unit_number)
   local shell = rec.shell
   local surface, pos, force = shell.surface, shell.position, shell.force
   local blast = rec.info.blast
 
-  unregister(unit_number)
   shell.die()
+  unregister(unit_number)
 
   force.print({ "pt-message.exploded",
     string.format("[gps=%d,%d,%s]", pos.x, pos.y, surface.name) })
