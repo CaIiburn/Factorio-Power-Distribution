@@ -62,8 +62,8 @@ local function empty_connectable_graphics()
 end
 
 -- Heat connections on the two LONG sides, one per tile.
---   horizontal (shell facing north/south): 4x2 tiles, connections on the top and bottom row
---   vertical   (shell facing east/west):   2x4 tiles, connections on the left and right column
+--   horizontal (shell facing east/west):   4x2 tiles, connections on the top and bottom row
+--   vertical   (shell facing north/south): 2x4 tiles, connections on the left and right column
 -- Positions are tile centres relative to the entity centre.
 local function heat_connections(vertical)
   local connections = {}
@@ -81,7 +81,8 @@ local function heat_connections(vertical)
 end
 
 -- Circuit wire attachment points for the four directions (north, east, south, west). Defined for
--- north (on the top long side, near the centre) and turned clockwise for the other directions.
+-- the 4x2 view (facing east: on the top long side, near the centre) and turned clockwise for the
+-- other directions, so facing north is that view turned three times.
 local function turn(p, steps)
   local x, y = p[1], p[2]
   for _ = 1, steps do x, y = -y, x end
@@ -91,7 +92,8 @@ end
 local function wire_points()
   local points = {}
   for dir = 0, 3 do
-    local red, green = turn({ -0.3, -0.6 }, dir), turn({ 0.3, -0.6 }, dir)
+    local steps = (dir - 1) % 4
+    local red, green = turn({ -0.3, -0.6 }, steps), turn({ 0.3, -0.6 }, steps)
     points[dir + 1] = {
       wire = { red = red, green = green },
       shadow = {
@@ -181,6 +183,8 @@ for _, kind in ipairs(C.kinds) do
       --
       -- Rotation: the prototype is rotatable (no "not-rotatable" flag), so the cursor, blueprints
       -- and R on a placed entity rotate it in 90 degree steps and the collision box turns with it.
+      -- The base view (north) is 2x4 and the output end is where the shell faces, because that is
+      -- what the game assumes when it flips a blueprint (see OUTPUT_VECTOR in common.lua).
       -- control.lua moves the hidden halves (and heat pipe) to the matching ends.
       out[#out + 1] = {
         type = "constant-combinator",
@@ -190,8 +194,8 @@ for _, kind in ipairs(C.kinds) do
         minable = { mining_time = 0.3, result = shell },
         max_health = 250,
         dying_explosion = existing("explosion", C.explosion_effect[size]),
-        collision_box = { { -1.85, -0.85 }, { 1.85, 0.85 } },
-        selection_box = { { -2, -1 }, { 2, 1 } },
+        collision_box = { { -0.85, -1.85 }, { 0.85, 1.85 } },
+        selection_box = { { -1, -2 }, { 1, 2 } },
         drawing_box_vertical_extension = 1.3,  -- the bushings stick out above the 2x4 footprint
         sprites = Sprites.shell(kind, tier, size_index),
         activity_led_sprites = empty_sprite_4way(),

@@ -12,8 +12,17 @@
 --     { u = along the transformer, v = across it, class = pole class of the other end }
 -- the position of the other end relative to the transformer, in the transformer's own frame: u is
 -- measured towards the output end, v is perpendicular to that (clockwise). Because the frame turns
--- with the transformer, a rotated blueprint wires the same poles. A mirrored blueprint does not
--- (transformers cannot be mirrored), so there the poles are not found: the wires are only wished for.
+-- with the transformer, a rotated blueprint wires the same poles.
+--
+-- A flipped (mirrored) blueprint: a transformer cannot be mirrored itself (it is a symmetric box, and
+-- the game only mirrors crafting machines, inserters and drills), so the game changes its direction
+-- and position as for any entity that faces somewhere (the output end stays the output end, see
+-- OUTPUT_VECTOR in common.lua). The tag cannot tell that from a rotation: facing west after a
+-- horizontal flip looks the same as facing west after a half turn, but the poles went to different
+-- sides of the transformer. So when the transformer is built, both frames (v kept or reversed) are
+-- tried against the world, and the one that finds the most poles or pole ghosts of the recorded
+-- classes is used. The unchanged frame wins every tie, and so does a transformer whose poles are
+-- not there yet: nothing is guessed from nothing.
 --
 -- A wire whose pole is not built yet (robots build in any order) is remembered as a "wish" of the
 -- port and made when a pole of that class appears at that spot. Wishes live in
@@ -124,6 +133,16 @@ local function find_target(surface, x, y, class, port)
   return nil
 end
 
+-- Is there a pole (or a ghost of one) of the class at the position?
+local function pole_at(surface, x, y, class, port)
+  if find_target(surface, x, y, class, port) then return true end
+  local names = lookup.names_by_class[class]
+  if not names then return false end
+  return #surface.find_entities_filtered{
+    position = { x = x, y = y }, radius = MATCH_RADIUS, ghost_name = names,
+  } > 0
+end
+
 local function add_wish(port, x, y, class)
   local all = wishes()
   local list = all[port.unit_number]
@@ -134,15 +153,47 @@ local function add_wish(port, x, y, class)
   list[#list + 1] = { x = x, y = y, class = class }
 end
 
--- Wires a port as the tag list says. Poles that are there are wired now, the others are wished.
-local function apply_list(rec, port, list, ctx)
+-- How the frame of the blueprint can have changed on the way to this transformer: { u sign, v sign }.
+-- Rotations leave the frame alone; a flip reverses the side (v). In order of preference.
+local FRAMES = { { 1, 1 }, { 1, -1 } }
+
+-- The world position of a recorded entry for one of the FRAMES.
+local function entry_position(rec, entry, flip)
   local o, p = frame(rec.shell)
   local sx, sy = rec.shell.position.x, rec.shell.position.y
+  local u, v = entry.u * flip[1], entry.v * flip[2]
+  return sx + u * o[1] + v * p[1], sy + u * o[2] + v * p[2]
+end
+
+-- The frame of the tag that fits the world best: the one for which the most recorded poles (or
+-- their ghosts) are where the tag says. The first of FRAMES wins ties, and so does an empty world.
+local function choose_frame(rec, tag)
+  local surface = rec.shell.surface
+  local best, best_score = FRAMES[1], 0
+  for _, flip in ipairs(FRAMES) do
+    local score = 0
+    for _, def in ipairs(ROLES) do
+      local port = rec[def.key]
+      local list = port and port.valid and tag[def.role]
+      if list then
+        for _, entry in ipairs(list) do
+          local x, y = entry_position(rec, entry, flip)
+          if pole_at(surface, x, y, entry.class, port) then score = score + 1 end
+        end
+      end
+    end
+    if score > best_score then best, best_score = flip, score end
+  end
+  return best
+end
+
+-- Wires a port as the tag list says (in the frame `flip`). Poles that are there are wired now, the
+-- others are wished.
+local function apply_list(rec, port, list, flip, ctx)
   local surface = rec.shell.surface
 
   for _, entry in ipairs(list) do
-    local x = sx + entry.u * o[1] + entry.v * p[1]
-    local y = sy + entry.u * o[2] + entry.v * p[2]
+    local x, y = entry_position(rec, entry, flip)
     local target = find_target(surface, x, y, entry.class, port)
     if target then
       connect(port, target)
@@ -188,12 +239,14 @@ end
 -- tags of the blueprint entity / ghost it was built from, if any.
 function PortWires.on_transformer_built(rec, tags, ctx)
   local tag = tags and tags[TAG]
+  if type(tag) ~= "table" then tag = nil end
+  local flip = tag and choose_frame(rec, tag)
   for _, def in ipairs(ROLES) do
     local port = rec[def.key]
     if port and port.valid then
-      local list = type(tag) == "table" and tag[def.role] or nil
+      local list = tag and tag[def.role] or nil
       if list and #list > 0 then
-        apply_list(rec, port, list, ctx)
+        apply_list(rec, port, list, flip, ctx)
       else
         autowire.wire_port(port, ctx)
       end

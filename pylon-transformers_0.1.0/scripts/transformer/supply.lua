@@ -8,7 +8,7 @@
 local Common = require("__pylon-transformers__.scripts.transformer.common")
 
 local C, hidden_names = Common.C, Common.hidden_names
-local east, west = Common.east, Common.west
+local north, south = Common.north, Common.south
 
 -- Tolerance for the supply-area rule: an area that merely touches the footprint does not count.
 local EPS = 0.001
@@ -52,7 +52,7 @@ end
 -- Returns an electric pole (or pole ghost) whose supply area overlaps the footprint of a
 -- transformer standing at pos with the given direction, or nil. Ports do not count.
 local function find_covering_pole(surface, pos, direction)
-  local vertical = (direction == east or direction == west)
+  local vertical = (direction == north or direction == south)
   local hx = vertical and C.footprint.short or C.footprint.long
   local hy = vertical and C.footprint.long or C.footprint.short
   local margin = MAX_SUPPLY + 1

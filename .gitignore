@@ -1,3 +1,5 @@
 /.vscode
 /mod-list.json
 /mod-settings.dat
+
+*.zip

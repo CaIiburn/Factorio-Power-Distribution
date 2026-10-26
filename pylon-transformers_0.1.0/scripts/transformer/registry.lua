@@ -23,6 +23,29 @@ local N, shells = Common.N, Common.shells
 -- Bump when the layout of storage.transformers records changes incompatibly.
 local STORAGE_VERSION = 2
 
+-- Which way the shell's direction names point (see OUTPUT_VECTOR in common.lua). Saves without
+-- this number were made when "north" meant "output on the right", one clockwise step off.
+local SHELL_FRAME = 2
+
+-- Turns every shell and every transformer ghost one step clockwise, which gives them the same
+-- footprint and the same input and output ends under the current meaning of the directions. The
+-- hidden helpers already stand at those ends; only the heat pipe variant name follows the footprint
+-- and stays right as well (the horizontal one is still the 4x2 one).
+local function turn_to_current_frame()
+  local names = {}
+  for name in pairs(shells) do names[#names + 1] = name end
+  if #names == 0 then return end
+  local step = defines.direction.east
+  for _, surface in pairs(game.surfaces) do
+    for _, e in pairs(surface.find_entities_filtered{ name = names }) do
+      e.direction = (e.direction + step) % 16
+    end
+    for _, e in pairs(surface.find_entities_filtered{ ghost_name = names }) do
+      e.direction = (e.direction + step) % 16
+    end
+  end
+end
+
 -- Spread all records over N buckets. Called whenever the bucket count differs from N
 -- (first run, or the startup setting changed between saves).
 local function rebuild_buckets()
@@ -81,7 +104,14 @@ local function unregister(unit_number)
 end
 
 local function init_storage()
+  local fresh = storage.transformers == nil
   storage.transformers = storage.transformers or {}
+
+  if storage.shell_frame ~= SHELL_FRAME then
+    -- A new world has nothing to turn.
+    if not fresh then turn_to_current_frame() end
+    storage.shell_frame = SHELL_FRAME
+  end
 
   if storage.version ~= STORAGE_VERSION then
     -- Records from an older layout (the shell used to be a different entity type). Throw the

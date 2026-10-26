@@ -49,7 +49,7 @@ Two kinds, **step-up** and **step-down**, each in 3 sizes (small, medium, large)
 | Step-up | feeder pole | pylon |
 | Step-down | pylon | distribution pole (large or small) |
 
-* **One entity each.** A transformer is a single 4x2 building (2x4 when turned sideways). It can be blueprinted and upgraded with the upgrade planner or fast replace, which advances the tier and keeps the size and the direction.
+* **One entity each.** A transformer is a single 2x4 building (4x2 when turned sideways). It can be blueprinted and upgraded with the upgrade planner or fast replace, which advances the tier and keeps the size and the direction.
 * **Ports.** Each end has a hidden pole, its *port*, of the matching class: `pc-port-feeder-in`, `pc-port-pylon-out`, `pc-port-pylon-in`, `pc-port-distribution-out`. Poles of that class wire to the port like to any other pole (by hand, or automatically). Wires from any other class are cut. Ports reach 16 tiles, enough for every pole tier to connect from outside its own supply area. See [Port wiring](#port-wiring).
 * **Not inside a pole's supply area.** A transformer cannot be built, ghosted or rotated into the supply area of **any** electric pole (all pole classes, hidden vanilla poles and poles of other mods; pole ghosts count). The other way round, a pole of this mod cannot be placed with a supply area that touches a transformer. While a transformer is held, the supply areas of nearby poles are drawn.
 * **Rotation.** The input is one end of the building, the output the other end. See [Rotation](#rotation).
@@ -60,26 +60,28 @@ Two kinds, **step-up** and **step-down**, each in 3 sizes (small, medium, large)
 
 * **Pole first, transformer second.** A new transformer wires its ports to the nearest poles of their class, the same way a new pole wires itself to the poles around it (setting `pc-autowire-mode`; `off` wires nothing; robots and scripts always use `nearest`). A port takes open line ends first, then the nearest pole that has a free wire. It respects the pole cap and the output limit (a third output on a pylon line or distribution network is not wired) and never joins another transformer's port by itself. Feeder and pylon ports make one wire, distribution ports up to two.
 * **Transformer first, pole second.** A new pole wires itself to a port in reach like to any other pole.
-* **Blueprints.** The ports are hidden, so no blueprint contains them. The wires between a port and its poles are saved as **tags on the transformer** instead: in a blueprint or blueprint book, only wires to poles (and transformer ports) that are part of the blueprint, so a transformer copied alone is autowired when it is pasted. Pasting the blueprint, or ghosts and robots building it, makes the same wires again. A rotated blueprint wires the same poles, because the wires are saved relative to the transformer's own direction.
+* **Blueprints.** The ports are hidden, so no blueprint contains them. The wires between a port and its poles are saved as **tags on the transformer** instead: in a blueprint or blueprint book, only wires to poles (and transformer ports) that are part of the blueprint, so a transformer copied alone is autowired when it is pasted. Pasting the blueprint, or ghosts and robots building it, makes the same wires again. A rotated blueprint wires the same poles, because the wires are saved relative to the transformer's own direction. **Flipped blueprints** (horizontal or vertical) work too: the game only turns the direction of a transformer, which looks like a rotation, so when the transformer is built the script tries the mirrored layouts as well and uses the one whose poles (or pole ghosts) are really there. Without any poles or ghosts to look at, it keeps the unflipped layout.
 * **Robots build in any order.** When a transformer is built before one of its poles, the wire is remembered and made as soon as a pole of that class is built at that spot. A pole that gets such a wire counts as already wired and is not autowired.
 * **Destroyed transformers.** When a transformer dies (shot, or exploded by overheating) and the force builds ghosts of dead entities, the port wires go onto the ghost the same way. Robots rebuild the transformer with its wires.
 * **Tags decide.** A port with wires in its tag is wired only as the tag says. A port with none (or no tag, for example a transformer from an old blueprint or one placed by hand) is autowired.
 
 ### Rotation
 
-* **Holding the item:** R rotates it like any other building, in 90 degree steps. The building turns between 4x2 and 2x4 tiles.
+* **Holding the item:** R rotates it like any other building, in 90 degree steps. The building turns between 2x4 and 4x2 tiles. F and G flip a blueprint with transformers in it; a transformer by itself has no flipped version, because it is symmetric and the output end is where it faces.
 * **Placed:** R (Shift+R for the other way) rotates it the same way, as long as the turned footprint is free and does not newly reach into a pole's supply area.
 * The two hidden energy halves and the two ports are moved to the matching ends. The halves keep the energy they had, so rotating never creates or destroys energy. The wires of the ports go with them; wires that no longer reach are dropped, and the rest is checked against the pole rules again.
 * Blueprints store the direction, and rotating a blueprint rotates the transformers in it. Fast replace and the upgrade planner keep the direction.
 
-Facing north (default), the input is on the left (west) end and the output on the right (east) end. Every other direction is that layout turned clockwise:
+The output end is where the transformer faces (default: north), the input end is the opposite one:
 
 | Direction | Footprint | Input end | Output end |
 |---|---|---|---|
-| north | 4x2 | left | right |
-| east | 2x4 | top | bottom |
-| south | 4x2 | right | left |
-| west | 2x4 | bottom | top |
+| north | 2x4 | bottom | top |
+| east | 4x2 | left | right |
+| south | 2x4 | top | bottom |
+| west | 4x2 | right | left |
+
+This is on purpose: the game flips a blueprint by turning the direction names as if the entity looked that way, so a flipped transformer only keeps its input and output at the right ends when the direction really points to the output. (Before this, north meant "output on the right", and every flip swapped the two ends.) Saves from that version are turned one step on load, so placed transformers and their ghosts stay as they were; blueprints and ghosts-in-blueprints made earlier are one step off and have to be made again.
 
 ### Losses
 
@@ -150,7 +152,7 @@ A mod that adds its own transformers or poles can classify its entities with a `
 
 ## Known limitations
 
-- Mirrored (flipped) blueprints do not reproduce port wires, because transformers cannot be mirrored: the recorded poles are not found, and the ports are not wired (a port whose tag has wires is not autowired either). Rotation is fine.
+- A flipped blueprint is detected from the poles around the transformer (see Port wiring). If a transformer is built when neither the poles nor their ghosts exist, a flipped blueprint is read as unflipped and the wires wait for poles at the unflipped spots.
 - Fast replace and the upgrade planner make a new transformer, whose ports are autowired like a placed one instead of keeping the old wires.
 - A wire that a blueprint asks for but that is out of reach, or not allowed (pole cap, outputs), is dropped with the usual warning; a wire whose pole never gets built stays remembered until its port is destroyed.
 - Rotation is followed only when a player rotates a transformer. If another mod changes the direction by script, the halves and ports stay on the old ends until the transformer is rebuilt.
@@ -180,6 +182,8 @@ The data stage and the runtime load were exercised against a stubbed Factorio AP
 14. `on_player_setup_blueprint`: does `mapping.get()` hold the transformer shells, and does `stack` / `record` accept `set_blueprint_entity_tag` (also for blueprints inside a book)? Do the tags come back as `event.tags` on build?
 15. Does the ghost of a dead transformer exist in `on_post_entity_died` with `unit_number`, can it take tags, and do robots revive it with them? (Needs the force to build ghosts of dead entities.)
 16. Are the ports still there in `on_entity_died` of the shell (their wires are read then)? And does the overheating explosion (`shell.die()`) raise it?
+17. Flipped blueprints (F / G with a blueprint in hand): with the output end where the shell faces, does a flipped transformer keep its input and output ends in all four directions, in both flips, and do the port wires come out on the mirrored poles (pasted by hand and built by robots from ghosts)?
+18. Orientation: does every direction show the right art (plug at the input end, bolt at the output end), the right footprint, and the circuit wire attachment on the same long side as before? Is a save from before the change (transformers and ghosts) turned one step on load so that nothing moves and the energy flows the same way?
 
 ## Graphics
 

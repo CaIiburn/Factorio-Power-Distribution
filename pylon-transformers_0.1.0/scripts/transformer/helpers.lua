@@ -2,17 +2,17 @@
 -- poles of the matching pole class) and (heat tiers only) a heat pipe. They are listed once, in
 -- HELPERS, and creation, repair, destruction and rebuilding all work from that list.
 --
--- Orientation: the shell is a normal rotatable entity with four directions. Facing north the
--- building is 4x2 with the input on the left (west) end and the output on the right (east) end.
--- Every other direction is that layout turned clockwise (east: input on top, output at the bottom;
--- south: input right, output left; west: input at the bottom, output on top). East and west are
--- 2x4 tiles. The engine does the rotating (cursor, blueprints, R on a placed entity); rebuild()
--- moves the helpers to the matching ends when a placed transformer is rotated.
+-- Orientation: the shell is a normal rotatable entity with four directions, and the output end is
+-- where it faces: facing north the building is 2x4 with the input at the bottom (south) end and the
+-- output at the top (north) end, facing east it is 4x2 with the input on the left and the output on
+-- the right, and so on. That is what the engine assumes when it flips a blueprint, so a flipped
+-- transformer keeps its output end. The engine does the rotating (cursor, blueprints, R on a placed
+-- entity); rebuild() moves the helpers to the matching ends when a placed transformer is rotated.
 local Common = require("__pylon-transformers__.scripts.transformer.common")
 local Ports = require("__pylon-transformers__.scripts.transformer.ports")
 
 local C, OUTPUT_VECTOR = Common.C, Common.OUTPUT_VECTOR
-local north, east, west = Common.north, Common.east, Common.west
+local north, south = Common.north, Common.south
 
 -- Creates a hidden entity on one end of the shell. side = 1 for the output end, -1 for the input end.
 local function create_at_end(shell, name, side)
@@ -28,11 +28,11 @@ local function create_at_end(shell, name, side)
   }
 end
 
--- The heat pipe sits on the shell's position. Heat pipes cannot rotate, so facing north/south
--- uses the horizontal variant (long side along x) and east/west the vertical one.
+-- The heat pipe sits on the shell's position. Heat pipes cannot rotate, so facing east/west uses
+-- the horizontal variant (long side along x) and north/south the vertical one.
 local function create_heat(shell, info)
   local dir = shell.direction
-  local vertical = (dir == east or dir == west)
+  local vertical = (dir == north or dir == south)
   return shell.surface.create_entity{
     name = vertical and info.heat_v or info.heat_h,
     position = shell.position,

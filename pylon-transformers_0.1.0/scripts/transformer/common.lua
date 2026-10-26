@@ -60,13 +60,20 @@ end
 local north, east, south, west =
   defines.direction.north, defines.direction.east, defines.direction.south, defines.direction.west
 
--- Direction of the shell -> unit vector from the shell center towards its OUTPUT end.
--- The input end is the opposite one. Turning clockwise: right -> down -> left -> up.
+-- Direction of the shell -> unit vector from the shell center towards its OUTPUT end: the output
+-- end is where the transformer faces, the input end is the opposite one.
+--
+-- This has to be so (and not, say, "output on the right when facing north"): the game flips a
+-- blueprint by turning the direction names as if the entity looked that way (a horizontal flip turns
+-- east into west and leaves north alone, a vertical flip the other way round). Only when the
+-- direction really points along the entity does a flipped transformer keep its input and output
+-- at the correct ends. Up to 0.1.0 (first merged version) north meant "output on the right"; saves
+-- from then are turned by registry.lua.
 local OUTPUT_VECTOR = {
-  [north] = {  1,  0 },
-  [east]  = {  0,  1 },
-  [south] = { -1,  0 },
-  [west]  = {  0, -1 },
+  [north] = {  0, -1 },
+  [east]  = {  1,  0 },
+  [south] = {  0,  1 },
+  [west]  = { -1,  0 },
 }
 
 return {

@@ -12,9 +12,11 @@
 --   frame 1: plug at the bottom (bolt end on top)                   frame 3: bolt at the bottom
 -- The plug is the low voltage end, the bolt is the high voltage end.
 --
--- Input is on the left in the north view, so:
---   "up"   (low in, high out): north = 0, east = 3, south = 2, west = 1
---   "down" (high in, low out): north = 2, east = 1, south = 0, west = 3
+-- The output end is where the shell faces (the game flips blueprints on that assumption), so the
+-- wide views are east (input left, output right) and west, the tall views north (output on top) and
+-- south:
+--   "up"   (low in, high out): east = 0, south = 3, west = 2, north = 1
+--   "down" (high in, low out): east = 2, south = 1, west = 0, north = 3
 
 local M = {}
 
@@ -23,8 +25,8 @@ local FW, FH = 466, 310
 local LABEL_W, LABEL_H = 64, 48
 
 local FRAME_OF = {
-  up   = { north = 0, east = 3, south = 2, west = 1 },
-  down = { north = 2, east = 1, south = 0, west = 3 },
+  up   = { east = 0, south = 3, west = 2, north = 1 },
+  down = { east = 2, south = 1, west = 0, north = 3 },
 }
 
 -- Measured from the sheets (hi-res px): cx = horizontal centre of the body, bottom = lowest body row.

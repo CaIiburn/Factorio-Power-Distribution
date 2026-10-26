@@ -189,7 +189,7 @@ function C.out_name(kind, tier, size)
 end
 
 -- Hidden heat entity. Heat pipes cannot rotate, so there is one variant for the shell facing
--- north/south (long side horizontal) and one for east/west (long side vertical).
+-- east/west (long side horizontal) and one for north/south (long side vertical).
 function C.heat_name(kind, tier, size, vertical)
   return C.shell_name(kind, tier, size) .. (vertical and "-heat-v" or "-heat-h")
 end
@@ -280,7 +280,7 @@ P.OUTPUT_LIMIT = { feeder = 0, pylon = 2, distribution = 2, aux = 0 }
 -- number here is only a performance guard for graph walks.
 P.NETWORK_CAP = {
   feeder       = { 16, 24, 36, 52, 72, 96 },
-  distribution = { 24, 36, 52, 72, 96, 128 },
+  distribution = { 32, 36, 52, 72, 96, 128 },
   aux          = { 8, 12, 16, 24, 32, 48 },
   pylon        = { 400, 400, 400, 400, 400, 400 },
 }
