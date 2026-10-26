@@ -48,6 +48,42 @@ function U.restyle(root, factor, tint)
   return root
 end
 
+local function scale_xy(v, f)
+  if v[1] ~= nil then return { v[1] * f, v[2] * f } end
+  return { x = (v.x or 0) * f, y = (v.y or 0) * f }
+end
+
+-- Scale the positions inside a circuit-connector definition (sprite `shift`s and wire / shadow attach
+-- points) so a connector stays on the edge of a building that is resized. Iterative, like restyle.
+function U.scale_connector_positions(root, factor)
+  if type(root) ~= "table" or factor == 1 then return root end
+  local seen = {}
+  local stack, n = { root }, 1
+  while n > 0 do
+    local t = stack[n]
+    stack[n] = nil
+    n = n - 1
+    if not seen[t] then
+      seen[t] = true
+      for k, v in pairs(t) do
+        if type(v) == "table" then
+          if k == "shift" then
+            t[k] = scale_xy(v, factor)
+          elseif k == "wire" or k == "shadow" then
+            for color, pos in pairs(v) do
+              if type(pos) == "table" then v[color] = scale_xy(pos, factor) end
+            end
+          elseif not seen[v] then
+            n = n + 1
+            stack[n] = v
+          end
+        end
+      end
+    end
+  end
+  return root
+end
+
 -- IconData list copied from a vanilla prototype and tinted.
 function U.icons_of(proto, tint, default_size)
   local out = {}

@@ -1,7 +1,8 @@
 # Mock-world test of scripts/stacks.lua: automatic recipe choice, refusals, rotation, research gating.
 import sys
 from lupa import LuaRuntime
-MOD = "/home/claude/ipp/industrial-power-plants_0.3.4"
+import os
+MOD = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 lua = LuaRuntime(unpack_returned_tuples=True)
 lua.execute(r'''
 package.path = "@MOD@/?.lua;" .. package.path
@@ -45,7 +46,9 @@ fails = []
 def check(cond, msg):
     print(("  ok   " if cond else "  FAIL ") + msg)
     if not cond: fails.append(msg)
-def setup(direction=0, px=0, py=-2, contents=None):
+OFF = int((lua.eval('require("shared.defs").config.stack.size') + 1) // 2)   # inlet distance from the stack centre
+def setup(direction=0, px=0, py=None, contents=None):
+    py = -OFF if py is None else py
     lua.execute("SURF.ents = {}; SETS = 0")
     st = g.mk_stack(10, 10, direction)
     pipe = g.mk_pipe(10 + px, 10 + py, lua.table_from(contents or {}))
@@ -76,11 +79,11 @@ g.ENABLED["ipp-vent-hot-exhaust"] = True; poll(st); check(st.recipe == "ipp-vent
 print("no pipe at all")
 st2, _ = setup(contents={}); lua.execute("SURF.ents = {}"); poll(st2); check(st2.recipe is None and st2.custom_status.label[1] == "ipp.status-waiting", "waiting status")
 print("rotation: inlet follows direction")
-for d, (px, py) in {4: (2, 0), 8: (0, 2), 12: (-2, 0)}.items():
+for d, (px, py) in {4: (OFF, 0), 8: (0, OFF), 12: (-OFF, 0)}.items():
     st3, _ = setup(direction=d, px=px, py=py, contents={"ipp-exhaust-steam": 5.0}); poll(st3)
     check(st3.recipe == "ipp-vent-exhaust-steam", "direction %d inlet found at (%d,%d)" % (d, px, py))
 print("pipe on the wrong side is ignored")
-st4, _ = setup(direction=0, px=0, py=2, contents={"ipp-exhaust-steam": 5.0}); poll(st4); check(st4.recipe is None, "outlet side not read")
+st4, _ = setup(direction=0, px=0, py=OFF, contents={"ipp-exhaust-steam": 5.0}); poll(st4); check(st4.recipe is None, "outlet side not read")
 print("vent list lines")
 lines = g.S.vent_list_lines(); check(len(lines) >= 10, "list has %d lines" % len(lines))
 print("event registration (engine rules)")

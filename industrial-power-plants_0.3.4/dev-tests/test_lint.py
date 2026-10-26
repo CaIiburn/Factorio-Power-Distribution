@@ -1,7 +1,7 @@
 # Static lint for Factorio require() pitfalls: Factorio resolves require() relative to the requiring
 # file's directory first, so a bare name can silently resolve to a sibling (or the file itself).
 import re, glob, os, sys
-MOD = "/home/claude/ipp/industrial-power-plants_0.3.4"
+MOD = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 bad = []
 for f in glob.glob(MOD + "/**/*.lua", recursive=True):
     if "dev-tests" in f: continue
@@ -10,6 +10,8 @@ for f in glob.glob(MOD + "/**/*.lua", recursive=True):
         name = m.group(1)
         if name.startswith("__core__.") or name.startswith("__base__."): continue
         top = name.split(".")[0]
+        if "." not in name and os.path.exists(os.path.join(MOD, name + ".lua")) and not os.path.exists(os.path.join(os.path.dirname(f), name + ".lua")):
+            continue   # a root-level module (config.lua) required from a subfolder: unambiguous
         if "." not in name or not os.path.isdir(os.path.join(MOD, top)):
             bad.append(f"{rel}: bare/unknown require '{name}'")
         elif not os.path.exists(os.path.join(MOD, *name.split(".")) + ".lua"):

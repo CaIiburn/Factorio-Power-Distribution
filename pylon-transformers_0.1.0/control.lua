@@ -41,6 +41,7 @@
 --     transfer.lua     energy transfer and the on_tick bucket scheduler
 --     placement.lua    placement rule and the build / clone / rotate / paste events
 --     overlay.lua      supply-area overlay while a transformer is held
+--   radiator.lua       gives a radiator (a heat interface) its setting when it is built
 --   poles/
 --     lookup.lua       static tables: classes, ports, restricted entities
 --     state.lua        what is saved in storage
@@ -70,6 +71,7 @@ Bus.add_libraries{
   require("__pylon-transformers__.scripts.transformer.heat"),
   require("__pylon-transformers__.scripts.transformer.transfer"),
   require("__pylon-transformers__.scripts.transformer.overlay"),
+  require("__pylon-transformers__.scripts.radiator"),
   require("__pylon-transformers__.scripts.transformer.port_wires").library,
   require("__pylon-transformers__.scripts.poles.events"),
 }

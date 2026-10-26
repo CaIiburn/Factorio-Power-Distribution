@@ -24,12 +24,14 @@ local function J(x) return string.format("%.0fJ", x) end
 
 -- Human readable text for the tooltip fields.
 local function fmt_power(w)
-  if w >= 1e9 then return string.format("%g GW", w / 1e6) end
-  if w >= 1e6 then return string.format("%g MW", w / 1e6) end
-  if w >= 1e3 then return string.format("%g kW", w / 1e3) end
-  return string.format("%g W", w)
+  if w >= 1e9 then return string.format("%.4g GW", w / 1e9) end
+  if w >= 1e6 then return string.format("%.4g MW", w / 1e6) end
+  if w >= 1e3 then return string.format("%.4g kW", w / 1e3) end
+  return string.format("%.4g W", w)
 end
-local function fmt_pct(f) return string.format("%g %%", f * 100) end
+local function fmt_pct(f) return string.format("%.3g %%", f * 100) end
+-- "1.05 MW (5.25 %)": a power and what share of the rated output it is.
+local function fmt_power_pct(w, rated) return fmt_power(w) .. " (" .. fmt_pct(w / rated) .. ")" end
 local function fmt_temp(c) return string.format("%g °C", c) end
 
 -- Icons (128 px, tinted, with tier and size badge) and sprites (see sprites.lua) are under graphics/.
@@ -154,22 +156,19 @@ for _, kind in ipairs(C.kinds) do
       local idle_w = t.idle_w
       local in_limit = rated + t.full_w
 
-      -- Conversion loss shown in tooltip: the ADDITIONAL loss on top of idle at 100% load.
-      -- (full_w already includes idle_w, per the shared datatable convention.)
-      local conv_loss_w = t.full_w - t.idle_w
-      local conv_pct = conv_loss_w / rated * 100
-
       -- Lines shown in the entity tooltip. `order` must be an integer.
       local fields = {
-        { name = {"pt-tooltip.max-output"},  value = fmt_power(rated),   order = 1 },
-        { name = {"pt-tooltip.idle-loss"},   value = fmt_power(idle_w),  order = 2 },
-        { name = {"pt-tooltip.conv-loss"},   value = fmt_pct(conv_pct),  order = 3 },
+        { name = {"pt-tooltip.max-output"},     value = fmt_power(rated),                   order = 1 },
+        { name = {"pt-tooltip.idle-loss"},      value = fmt_power_pct(idle_w, rated),       order = 2 },
+        -- full_w is the TOTAL loss at full load, idle loss included
+        { name = {"pt-tooltip.full-load-loss"}, value = fmt_power_pct(t.full_w, rated),     order = 3 },
       }
       local description = { "", {"entity-description.pt-" .. kind}, "\n", {"entity-description.pt-power"},
                             "\n", {"entity-description.pt-circuit"} }
       if h then
         fields[#fields + 1] = { name = {"pt-tooltip.cool-load"},    value = fmt_pct(C.heat.cool_load), order = 4 }
         fields[#fields + 1] = { name = {"pt-tooltip.explode-temp"}, value = fmt_temp(h.explode_c),     order = 5 }
+        fields[#fields + 1] = { name = {"pt-tooltip.radiators"},    value = tostring(h.radiators),     order = 6 }
         description[#description + 1] = "\n"
         description[#description + 1] = {"entity-description.pt-heat"}
       end

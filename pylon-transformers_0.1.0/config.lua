@@ -106,6 +106,32 @@ C.heat = {
   },
 }
 
+-- Radiator: a 2x2 building that takes heat out of heat pipes and out of the heat-tier transformers
+-- next to it and gives it to nobody. It is a heat interface (the engine's "infinity heat pipe"),
+-- set at runtime to "at most ambient", so it is always at ambient. The engine alone does the rest:
+-- every tick it equalises the temperature of two connected heat buffers, and since the radiator is
+-- put back to ambient, what it takes is
+--     heat per tick = (T - ambient) * specific_heat of the radiator       (a small specific heat)
+-- That is a cooler with a conductance (W per degree C) like the passive cooling of a transformer,
+-- and the specific heat of the radiator sets it: conductance = 60 * specific_heat * exchange_factor.
+-- A transformer's heat pipe connects to it directly, ordinary heat pipes connect to it as well.
+--
+-- The one number to set is how many radiators the hungriest heat transformer needs at full load. The
+-- specific heat of the radiator follows from it (see below), and so does the number of radiators
+-- every other transformer needs, which the tooltips show.
+C.radiator = {
+  name = "pt-radiator",
+  full_load_count = 4,        -- radiators the transformer that needs the most cooling needs at full load
+  hold_frac = C.heat.warn_frac, -- "enough" means: full load settles at this fraction of the way from
+                              -- ambient to the explosion temperature. The default is the alert
+                              -- temperature, so no alert and no explosion. 1 = right at the explosion.
+  exchange_factor = 1,        -- the fraction of the temperature difference the engine equalises per
+                              -- tick between two buffers (1 = all of it). Calibrate this if the
+                              -- measured cooling of a radiator is off by a constant factor.
+  max_temperature = 1000,
+  max_health = 300,
+}
+
 -- Explosion effect played when a shell dies (any cause). Names that do not exist in the loaded
 -- prototypes are ignored by the data stage.
 C.explosion_effect = {
@@ -170,6 +196,40 @@ for tier = 1, 6 do
     row[size] = entry
   end
   C.tiers[tier] = row
+end
+
+-- Radiator numbers that follow from C.radiator.
+--   A transformer at full load settles where its losses equal its cooling:
+--       full_w = (cooling + radiators * conductance) * (T - ambient)
+--   It holds the hold temperature when radiators * conductance >= need_k, with
+--       need_k = full_w / (hold - ambient) - cooling       (W per degree C, 0 if passive cooling is enough)
+-- conductance is chosen so that the transformer with the largest need_k needs exactly
+-- full_load_count radiators; the radiator's specific heat gives that conductance to the engine.
+do
+  local R = C.radiator
+  assert(R.full_load_count >= 1, "C.radiator.full_load_count must be at least 1")
+  assert(R.hold_frac > 0 and R.hold_frac <= 1, "C.radiator.hold_frac must be in (0, 1]")
+  assert(R.exchange_factor > 0 and R.exchange_factor <= 1, "C.radiator.exchange_factor must be in (0, 1]")
+  local ambient = C.heat.ambient
+  local worst = 0
+  for _, row in pairs(C.tiers) do
+    for _, entry in pairs(row) do
+      local h = entry.heat
+      if h then
+        h.hold_c = ambient + R.hold_frac * (h.explode_c - ambient)
+        h.need_k = math.max(0, entry.full_w / (h.hold_c - ambient) - h.cooling)
+        worst = math.max(worst, h.need_k)
+      end
+    end
+  end
+  R.conductance = worst / R.full_load_count                  -- W per degree C, per radiator
+  R.specific_heat = R.conductance / 60 / R.exchange_factor   -- J per degree C: what the engine is given
+  for _, row in pairs(C.tiers) do
+    for _, entry in pairs(row) do
+      local h = entry.heat
+      if h then h.radiators = math.ceil(h.need_k / R.conductance - 1e-9) end
+    end
+  end
 end
 
 ---------------------------------------------------------------------------------------------------
@@ -280,7 +340,7 @@ P.OUTPUT_LIMIT = { feeder = 0, pylon = 2, distribution = 2, aux = 0 }
 -- number here is only a performance guard for graph walks.
 P.NETWORK_CAP = {
   feeder       = { 16, 24, 36, 52, 72, 96 },
-  distribution = { 32, 36, 52, 72, 96, 128 },
+  distribution = { 24, 36, 52, 72, 96, 128 },
   aux          = { 8, 12, 16, 24, 32, 48 },
   pylon        = { 400, 400, 400, 400, 400, 400 },
 }

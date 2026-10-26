@@ -1,4 +1,5 @@
 local U = require("prototypes.ipp-helpers")
+local R = require("shared.defs").config.research
 
 local function unlock(list)
   local e = {}
@@ -14,12 +15,11 @@ data:extend {
     effects = unlock {
       "ipp-structural-frame", "ipp-electric-motor", "ipp-generator-winding", "ipp-turbine-rotor",
       "ipp-heat-exchanger-panel", "ipp-refractory-lining",
-      "ipp-coal-mill", "ipp-industrial-boiler", "ipp-steam-turbine-generator", "ipp-air-condenser",
-      "ipp-exhaust-stack", "ipp-waste-compactor",
-      "ipp-coal-charge", "ipp-ash-compaction", "ipp-boiler-cycle", 
-      "ipp-condensation", "ipp-vent-exhaust-steam", "ipp-ash-concrete",
+      "ipp-air-condenser", "ipp-exhaust-stack",
+      "ipp-condensation", "ipp-vent-exhaust-steam",
     },
-    unit = { count = 150, time = 30, ingredients = { { "automation-science-pack", 1 }, { "logistic-science-pack", 1 } } },
+    unit = { count = R.industrial_steam_power.count, time = R.industrial_steam_power.time,
+             ingredients = { { "automation-science-pack", 1 }, { "logistic-science-pack", 1 } } },
     order = "e-p-a",
   },
   {
@@ -34,7 +34,7 @@ data:extend {
       "ipp-fuel-gas-conditioning", "ipp-heat-recovery",
       "ipp-vent-flue-gas", "ipp-vent-hot-exhaust",
     },
-    unit = { count = 300, time = 30, ingredients = {
+    unit = { count = R.combined_cycle_power.count, time = R.combined_cycle_power.time, ingredients = {
       { "automation-science-pack", 1 }, { "logistic-science-pack", 1 }, { "chemical-science-pack", 1 } } },
     order = "e-p-b",
   },
@@ -43,7 +43,8 @@ data:extend {
     icons = U.tech_icons("battery", U.color(0.8, 0.9, 1.0)),
     prerequisites = { "ipp-industrial-steam-power", "battery" },
     effects = unlock { "ipp-startup-bank" },
-    unit = { count = 150, time = 30, ingredients = { { "automation-science-pack", 1 }, { "logistic-science-pack", 1 } } },
+    unit = { count = R.startup_energy_storage.count, time = R.startup_energy_storage.time,
+             ingredients = { { "automation-science-pack", 1 }, { "logistic-science-pack", 1 } } },
     order = "e-p-c",
   },
 }

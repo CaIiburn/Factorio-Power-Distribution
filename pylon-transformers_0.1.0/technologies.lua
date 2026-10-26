@@ -24,6 +24,9 @@ local tier_research_time  = { 15, 20, 30, 45, 60, 60 }
 function technologies.generate(C)
   local out = {}
 
+  local first_heat_tier = math.huge
+  for tier in pairs(C.heat.tiers) do first_heat_tier = math.min(first_heat_tier, tier) end
+
   for tier = 1, #C.tiers do
     local tech_name = "pt-transformer-t" .. tier
 
@@ -35,6 +38,11 @@ function technologies.generate(C)
           recipe = C.shell_name(kind, tier, size),
         })
       end
+    end
+
+    -- The radiator comes with the first tier that has heat.
+    if tier == first_heat_tier then
+      unlocks[#unlocks + 1] = { type = "unlock-recipe", recipe = C.radiator.name }
     end
 
     out[#out + 1] = {

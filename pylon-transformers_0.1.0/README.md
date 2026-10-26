@@ -53,7 +53,7 @@ Two kinds, **step-up** and **step-down**, each in 3 sizes (small, medium, large)
 * **Ports.** Each end has a hidden pole, its *port*, of the matching class: `pc-port-feeder-in`, `pc-port-pylon-out`, `pc-port-pylon-in`, `pc-port-distribution-out`. Poles of that class wire to the port like to any other pole (by hand, or automatically). Wires from any other class are cut. Ports reach 16 tiles, enough for every pole tier to connect from outside its own supply area. See [Port wiring](#port-wiring).
 * **Not inside a pole's supply area.** A transformer cannot be built, ghosted or rotated into the supply area of **any** electric pole (all pole classes, hidden vanilla poles and poles of other mods; pole ghosts count). The other way round, a pole of this mod cannot be placed with a supply area that touches a transformer. While a transformer is held, the supply areas of nearby poles are drawn.
 * **Rotation.** The input is one end of the building, the output the other end. See [Rotation](#rotation).
-* **Tooltip** shows the maximum output power, the idle loss and the conversion loss (and, for heat tiers, the cooling load and the explosion temperature).
+* **Tooltip** shows the max output, the idle loss and the full load loss (total), each loss as power and as a percentage of the rated output, e.g. `Idle loss: 351.6 kW (1.12 %)` (and, for heat tiers, the load up to which passive cooling is enough, the explosion temperature and the number of radiators needed at full load).
 * **Circuit network.** Connect a circuit wire to the transformer to read `pt-load` (delivered output, % of rated), `pt-power` (kW) and, for heat tiers, `pt-temperature` (degrees C). The values are updated every update interval and only written when they change.
 
 ### Port wiring
@@ -94,7 +94,7 @@ Total loss at a given load: `loss = idle_w + (full_w - idle_w) * (load / capacit
 
 - **Maximum output power** is the value in the tooltip. It is a hard engine cap (the output flow limit of the output half).
 - **Maximum input power** is the maximum output plus the total loss at full load (`capacity_w + full_w`).
-- The tooltip's conversion loss is the additional loss at 100 % load, as a percentage of the rated output.
+- The tooltip's full load loss is the total loss at 100 % load (idle loss included), as power and as a percentage of the rated output.
 - Bigger sizes have a higher absolute idle loss but a lower loss at full load, so small transformers are more efficient at low load and large ones under load.
 - Every tier removes another 12.5 % of the tier-1 loss fractions (multiplier 1.0, 0.875, 0.75, 0.625, 0.5, 0.375).
 
@@ -114,6 +114,27 @@ Each cell reads: rated output, idle loss, total loss at full load as a percentag
 ### Heat (tiers 3 and 4)
 
 Tier 3 and 4 transformers have a temperature. The losses heat them; passive cooling holds a transformer up to 50 % load, above that it needs heat pipes on its long sides. An alert is raised at 70 % of the way to the explosion temperature (300 degrees C for tier 3, 400 for tier 4); at the explosion temperature the transformer explodes and damages its surroundings (runtime setting `pt-explosions`). Full load without any cooling takes 120 s from ambient to explosion. All numbers are in `config.lua` (`C.heat`).
+
+### Radiator
+
+A 2x2 building (`pt-radiator`, unlocked with the tier 3 transformer technology) that cools whatever heat network it is connected to and gives the heat to nobody. It needs no power and no fuel. Heat pipes connect to it on all four sides (two connections per side), and a transformer's heat connection on its long side takes it directly, so a radiator can stand right next to a transformer or at the end of a heat pipe line.
+
+**The setting is a count.** In `config.lua`, `C.radiator.full_load_count` is how many radiators the transformer that needs the most cooling needs to run at full load without alerts or explosion (default 4). Everything else follows from it, including the number every other transformer needs, which is in each heat transformer's tooltip ("Radiators at full load"):
+
+| Transformer | Heat at full load | Passive cooling | Radiators |
+|---|---|---|---|
+| T3 small / medium / large | 1.06 / 1.41 / 1.88 MW | 1.8 / 3.1 / 5.9 kW per degree C | 2 / 2 / 2 |
+| T4 small / medium / large | 4.40 / 5.86 / 7.81 MW | 5.4 / 9.5 / 18.1 kW per degree C | 4 / 4 / 4 |
+
+"Enough" means that full load settles at `C.radiator.hold_frac` of the way from ambient to the explosion temperature. The default is the alert temperature (70 %: 214.5 degrees C for T3, 284.5 for T4), so full load with that many radiators neither alerts nor explodes. Set it to 1 for the literal limit (settles right at the explosion temperature, no margin).
+
+**The engine does the cooling, there is no script.** The radiator is a heat interface (the engine's infinity heat pipe) that the script sets to "at most 15 degrees C" when it is built, so it is always at ambient. Every tick the engine moves heat between two connected buffers until their temperatures meet, and because the radiator is put back to ambient, a connected pipe loses `(T - ambient) * specific_heat` of the radiator per tick. That is a cooler with a conductance, like the passive cooling of a transformer, and the specific heat of the radiator sets it: `conductance = 60 * specific_heat * exchange_factor` in W per degree C. A transformer at full load settles where `full_load_loss = (passive_cooling + radiators * conductance) * (T - ambient)`. `config.lua` solves that for the transformer that needs the most cooling (T4 medium, 12.2 kW per degree C beyond its passive cooling), divides by `full_load_count` and gets the conductance of one radiator (3.06 kW per degree C with the default), and from it the radiator's specific heat (51 J per degree C), which goes into the prototype. Because the cooling grows with the temperature, a radiator works harder the hotter the network is, and does nothing at ambient.
+
+`C.radiator.exchange_factor` (default 1) is the one thing that is assumed and not known: how much of the temperature difference the engine equalises per tick between two buffers (1 = all of it). The engine's exact heat formula is not documented. If a measured radiator cools by a constant factor less than computed, set it to that factor and the specific heat is raised to match.
+
+A correction to an earlier version of this README: it said the heat buffer's `max_transfer` has no effect on the cooling. That was not shown. The only observation was that changing the old setting made no difference to a test that never came near the cap. `max_transfer` is now simply set high (1 GW) so it cannot be what limits a radiator.
+
+The art is original (`make_radiator_graphics.py` draws it): no sprite with a clear licence turned up. The large radiator of the Heat Management mod uses art from the TFMG mod, and Radiative Tower uses Cerys art under another licence, so neither was taken.
 
 ## Settings
 
@@ -184,6 +205,7 @@ The data stage and the runtime load were exercised against a stubbed Factorio AP
 16. Are the ports still there in `on_entity_died` of the shell (their wires are read then)? And does the overheating explosion (`shell.die()`) raise it?
 17. Flipped blueprints (F / G with a blueprint in hand): with the output end where the shell faces, does a flipped transformer keep its input and output ends in all four directions, in both flips, and do the port wires come out on the mirrored poles (pasted by hand and built by robots from ghosts)?
 18. Orientation: does every direction show the right art (plug at the input end, bolt at the output end), the right footprint, and the circuit wire attachment on the same long side as before? Is a save from before the change (transformers and ghosts) turned one step on load so that nothing moves and the energy flows the same way?
+19. Radiator: with `full_load_count = 4`, do 4 radiators next to a T4 medium transformer at full load hold it at or below the alert temperature (about 284 degrees C), and 2 radiators a T3 one (about 214)? Measure the cooling of one radiator on a heat pipe at a known temperature: is it about 3 kW per degree C of difference (with the default `exchange_factor = 1`)? If it is a constant factor off, set `exchange_factor`. Does the radiator connect to the transformer's hidden heat pipe on a long side, and to ordinary heat pipes on all four sides? Does "at most 15 degrees C" keep it at ambient (the setting is made when it is built, from a blueprint, by a robot and by cloning)? Does the heat pipe line between a transformer and a radiator carry the heat well enough, or does it need to be short?
 
 ## Graphics
 
@@ -199,12 +221,13 @@ Run it again whenever the north sprites change.
 - `info.json`, `settings.lua`, `data.lua`, `data-final-fixes.lua` (classifies entities, hides vanilla poles)
 - `config.lua`: transformer tiers, loss and heat model, port constants and `C.pole` (pole classes), shared by both stages
 - `recipes.lua`, `technologies.lua`, `sprites.lua`: transformer generators
-- `prototypes/`: `poles.lua`, `ports.lua`, `pole-items.lua`, `pole-technology.lua`, `wire-tool.lua`, `item-exists.lua` (pole classes), `transformers.lua` (all transformer prototypes)
+- `prototypes/`: `poles.lua`, `ports.lua`, `pole-items.lua`, `pole-technology.lua`, `wire-tool.lua`, `item-exists.lua` (pole classes), `transformers.lua` (all transformer prototypes), `radiator.lua`
 - `control.lua`: loads the runtime modules into the event bus
 - `scripts/bus.lua`: event bus
+- `scripts/radiator.lua`: gives a built radiator its heat setting
 - `scripts/transformer/`: `common`, `supply`, `ports`, `port_wires`, `helpers`, `circuit`, `registry`, `heat`, `transfer`, `placement`, `overlay`
 - `scripts/poles/`: `lookup`, `state`, `graph`, `placement`, `wires`, `autowire`, `zones`, `tools`, `held`, `notify`, `events`
 - `locale/en/`: `pylon-transformers.cfg`, `pole-classes.cfg`
 - `graphics/`: icons, technology icons and entity sprites
-- `make_rotated_graphics.py`, `generate_placeholders.py`: graphics tools
+- `make_rotated_graphics.py`, `generate_placeholders.py`, `make_radiator_graphics.py`: graphics tools
 - `prototype-api.json`, `runtime-api.json`: latest factorio modding apis

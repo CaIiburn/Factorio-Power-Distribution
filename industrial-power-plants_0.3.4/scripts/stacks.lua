@@ -8,14 +8,16 @@ local defs = require("shared.defs")
 local M = {}
 local POLL_TICKS = 60
 
--- Tile just outside the stack's inlet face (inlet is on the north face of an unrotated stack).
+-- Tile just outside the stack's inlet face (inlet is on the north face of an unrotated stack). The distance
+-- follows the configured stack size: half the footprint plus half a tile (2 for the default 3x3).
 local function inlet_offset(direction)
   local d = defines.direction
-  if direction == d.north then return 0, -2
-  elseif direction == d.east then return 2, 0
-  elseif direction == d.south then return 0, 2
-  elseif direction == d.west then return -2, 0 end
-  return 0, -2
+  local o = (defs.config.stack.size + 1) / 2
+  if direction == d.north then return 0, -o
+  elseif direction == d.east then return o, 0
+  elseif direction == d.south then return 0, o
+  elseif direction == d.west then return -o, 0 end
+  return 0, -o
 end
 
 local function stacks()

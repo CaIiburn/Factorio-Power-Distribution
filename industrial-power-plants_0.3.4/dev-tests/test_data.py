@@ -1,6 +1,6 @@
-import lupa, sys
+import lupa, sys, os
 from lupa import LuaRuntime
-MOD = "/home/claude/ipp/industrial-power-plants_0.3.4"
+MOD = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 lua = LuaRuntime(unpack_returned_tuples=True)
 lua.execute(r'''
 package.path = "%s/?.lua;" .. package.path
@@ -39,6 +39,8 @@ local function am(name, sz)
         pipe_connections = {{flow_direction="input", direction=0, position={0,-2}}} } },
     graphics_set = { animation = { layers = { sprite(name .. ".png"), shared, { filename = "sh.png", draw_as_shadow = true, shift = {2, 2} } } },
                      working_visualisations = { { animation = sprite("w.png") } } },
+    circuit_connector = { { points = { wire = { red = {0.9, 1.2} }, shadow = { red = {1.0, 1.3} } }, sprites = { connector_main = { filename = "cc.png", shift = {0.9, 1.2} } } } },
+    water_reflection = { pictures = { filename = "wr.png", width = 10, height = 10, scale = 1, shift = {0, 0} } },
     icon = "__base__/graphics/icons/" .. name .. ".png", icon_size = 64 }
 end
 raw["assembling-machine"] = {}
@@ -190,10 +192,11 @@ print("generator port fields dropped (as logged):", len(g.LOGS), "entries; e.g."
 print("vent allowed:", sorted(allowed)); print("vent denied :", sorted(denied))
 stk = raw["assembling-machine"]["ipp-exhaust-stack"]
 if stk.fixed_recipe is not None: errs.append("stack must not have a fixed recipe")
-# sprite double-scaling guard: shared sprite must be scaled exactly once (scale 1 -> 1, no factor) ; check bank scale 1.5
+# sprite double-scaling guard: shared sprite must be scaled exactly once (scale 1 -> 1, no factor) ; check bank scale = size/2
+D = g.require("shared.defs")
 bank = raw.accumulator["ipp-startup-bank"]
 sc = bank.chargable_graphics.picture.scale
-if abs(sc - 1.5) > 1e-9: errs.append("bank sprite scale %s != 1.5" % sc)
+if abs(sc - D.config.startup_bank.size / 2) > 1e-9: errs.append("bank sprite scale %s != size/2" % sc)
 # energy accounting for native generators
 D_GEN = g.require('shared.defs').generators
 def amt(r, kind, name):
@@ -261,10 +264,6 @@ for mname in raw["assembling-machine"].keys():
 for rn in recipes.keys():
     if "turbine-cycle" in rn: errs.append("stale recipe " + rn)
 if raw["electric-energy-interface"] is not None: errs.append("hidden EEI prototypes should be gone")
-b = recipes["ipp-boiler-cycle"]
-print("boiler: %.1f water -> %.1f steam = %.2f MW (energy_usage %s)" % (amt(b,'in','water'), amt(b,'out','ipp-industrial-steam'), amt(b,'out','ipp-industrial-steam')*STEAM_UNIT_KJ/1000, raw["assembling-machine"]["ipp-industrial-boiler"].energy_usage))
-ch = raw.item["ipp-coal-charge"]
-print("charge fuel value", ch.fuel_value, "vs", 8*4, "MJ coal")
 hr = recipes["ipp-heat-recovery"]
 steam_mj = amt(hr,'out','ipp-industrial-steam')*STEAM_UNIT_KJ/1000
 gt = D.generators["ipp-gas-turbine-generator"]; gt_elec = gt.per_second*gt.effectivity
@@ -272,6 +271,93 @@ print("HRSG: %.0f hot exhaust + %.0f water -> %.0f steam (%.1f MJ) + %.0f flue ;
 if steam_mj > gt.per_second - gt_elec: errs.append("HRSG recovers more heat than the exhaust holds")
 if amt(hr,'in','ipp-hot-exhaust') != gt.per_second: errs.append("HRSG exhaust != gas turbine output (1:1 conversion assumed)")
 print("conditioner: 105 PG -> %.0f fuel gas" % amt(recipes["ipp-fuel-gas-conditioning"],'out','ipp-fuel-gas'))
+
+# ---- tier 1 coal plant is gone ----
+for rn in ("ipp-coal-charge", "ipp-ash-compaction", "ipp-boiler-cycle", "ipp-ash-concrete", "ipp-coal-mill",
+           "ipp-industrial-boiler", "ipp-steam-turbine-generator", "ipp-waste-compactor"):
+    if recipes[rn] is not None: errs.append("tier 1 recipe still present: " + rn)
+for iname in ("ipp-coal-charge", "ipp-ash", "ipp-ash-block", "ipp-coal-mill", "ipp-industrial-boiler",
+              "ipp-steam-turbine-generator", "ipp-waste-compactor"):
+    if iname in items: errs.append("tier 1 item still present: " + iname)
+for mname in ("ipp-coal-mill", "ipp-industrial-boiler", "ipp-waste-compactor"):
+    if raw["assembling-machine"][mname] is not None: errs.append("tier 1 machine still present: " + mname)
+if raw["fusion-generator"]["ipp-steam-turbine-generator"] is not None: errs.append("tier 1 turbine still present")
+if raw["fuel-category"] is not None and raw["fuel-category"]["ipp-graded-coal"] is not None: errs.append("graded coal fuel category still present")
+for tname in raw.technology.keys():
+    t = raw.technology[tname]
+    if t.effects:
+        for i in range(1, len(t.effects)+1):
+            if t.effects[i].recipe in ("ipp-coal-mill", "ipp-industrial-boiler", "ipp-steam-turbine-generator", "ipp-waste-compactor"):
+                errs.append("tech %s still unlocks tier 1 recipe" % tname)
+# ---- 5x5 footprints and sprites ----
+for mname in ("ipp-fuel-gas-conditioner", "ipp-heat-recovery-steam-generator"):
+    m = raw["assembling-machine"][mname]
+    sb, cb = m.selection_box, m.collision_box
+    w, h = round(sb[2][1] - sb[1][1]), round(sb[2][2] - sb[1][2])
+    want = D.config.conditioner.size if mname == "ipp-fuel-gas-conditioner" else D.config.heat_recovery.size
+    if (w, h) != (want, want): errs.append("%s: footprint %dx%d != configured %dx%d" % (mname, w, h, want, want))
+    margin = 0.3 if want == 3 else 0.1   # at the chemical plant's own 3x3 the vanilla boxes are kept
+    if abs(cb[2][1] - (want / 2 - margin)) > 1e-9 or abs(cb[1][2] + (want / 2 - margin)) > 1e-9: errs.append("%s: collision box %s,%s" % (mname, cb[1][1], cb[2][2]))
+    print("%-38s footprint %dx%d" % (mname, w, h))
+cond = raw["assembling-machine"]["ipp-fuel-gas-conditioner"]
+layers = cond.graphics_set.animation.layers
+if not str(layers[1].filename).endswith("chemical-stager/chemical-stager-hr-animation-1.png"): errs.append("conditioner: not using the chemical-stager animation")
+if not str(layers[1].filename).startswith("__industrial-power-plants__/graphics/"): errs.append("conditioner: sprite path must be inside the mod")
+if layers[1].frame_count != 60 or layers[1].line_length != 8 or layers[1].width != 400: errs.append("conditioner: sprite sheet layout mismatch")
+if layers[2].draw_as_shadow is not True or layers[2].repeat_count != 60: errs.append("conditioner: shadow layer")
+if cond.graphics_set.working_visualisations[1].animation.draw_as_glow is not True: errs.append("conditioner: emission layer")
+for lay in (layers[1], layers[2], cond.graphics_set.working_visualisations[1].animation):
+    p_ = os.path.join(MOD, str(lay.filename).replace("__industrial-power-plants__/", ""))
+    if not os.path.exists(p_): errs.append("missing sprite file " + p_)
+    else:
+        from PIL import Image
+        w_, h_ = Image.open(p_).size
+        need_w = lay.line_length * lay.width if lay.line_length else lay.width
+        if lay.width > w_ or lay.height > h_: errs.append("sprite %s smaller than a frame" % p_)
+        if lay.line_length and (lay.line_length * lay.width > w_ or -(-lay.frame_count // lay.line_length) * lay.height > h_):
+            errs.append("sprite %s too small for %d frames x %d columns" % (p_, lay.frame_count, lay.line_length))
+icon = cond.icons[1].icon
+if not os.path.exists(os.path.join(MOD, str(icon).replace("__industrial-power-plants__/", ""))): errs.append("missing icon " + str(icon))
+hrsg = raw["assembling-machine"]["ipp-heat-recovery-steam-generator"]
+hf = D.config.heat_recovery.size / 3
+hs = hrsg.graphics_set.animation.layers[1].scale or 1   # nil = 1 (restyle leaves an unscaled sprite untouched)
+if abs(hs - hf) > 1e-9: errs.append("hrsg sprite not scaled %s: %s" % (hf, hs))
+if abs(hrsg.circuit_connector[1].points.wire.red[1] - 0.9*hf) > 1e-9: errs.append("hrsg circuit connector not scaled")
+if abs(layers[1].scale - 0.5 * D.config.conditioner.size / 5) > 1e-9: errs.append("conditioner sprite scale does not follow size")
+# ---- configured sizes reach every custom entity ----
+def side(box): return round(box[2][1] - box[1][1]), round(box[2][2] - box[1][2])
+am = raw["assembling-machine"]
+for ent, want in (("ipp-air-condenser", D.config.condenser.size), (D.STACK, D.config.stack.size)):
+    if side(am[ent].selection_box) != (want, want): errs.append("%s footprint %s != configured %d" % (ent, side(am[ent].selection_box), want))
+    pc = am[ent].fluid_boxes[1].pipe_connections[1].position
+    if abs(abs(pc[2]) - (want - 1) / 2) > 1e-9: errs.append("%s pipe tile %s not on the edge of a %d footprint" % (ent, pc[2], want))
+if side(raw.accumulator["ipp-startup-bank"].selection_box) != (D.config.startup_bank.size,) * 2: errs.append("bank footprint != configured")
+for tn, key in (("ipp-large-steam-turbine-generator", "large_steam"), ("ipp-gas-turbine-generator", "gas")):
+    if side(raw["fusion-generator"][tn].selection_box) != (3 * D.config.turbines[key].size_multiplier, 5 * D.config.turbines[key].size_multiplier): errs.append(tn + ": footprint != 3x5 x size_multiplier")
+# every fluid port sits on the edge tile of its (resized) building
+for ent in ("ipp-fuel-gas-conditioner", "ipp-heat-recovery-steam-generator"):
+    half = side(am[ent].selection_box)[1] / 2
+    for fbx in range(1, len(am[ent].fluid_boxes) + 1):
+        pc = am[ent].fluid_boxes[fbx].pipe_connections[1].position
+        if abs(abs(pc[2]) - (half - 0.5)) > 1e-9: errs.append("%s: port %d not on edge tile" % (ent, fbx))
+# ---- every config rate reaches the prototypes ----
+CF = D.config
+cs = raw.recipe["ipp-fuel-gas-conditioning"]
+if amt(cs, 'in', 'petroleum-gas') != CF.conditioner.petroleum_gas_per_second or amt(cs, 'out', 'ipp-fuel-gas') != CF.conditioner.fuel_gas_per_second: errs.append("conditioner recipe != config")
+if str(cond.energy_usage) != "%.6gMW" % CF.conditioner.power_mw: errs.append("conditioner energy usage %s != config" % cond.energy_usage)
+if cond.energy_source.emissions_per_minute.pollution != CF.conditioner.pollution_per_minute: errs.append("conditioner pollution != config")
+cd = raw.recipe["ipp-condensation"]
+if amt(cd, 'in', 'ipp-exhaust-steam') != CF.condenser.exhaust_steam_per_second or amt(cd, 'out', 'water') != CF.condenser.water_per_second: errs.append("condensation recipe != config")
+if str(raw["assembling-machine"]["ipp-air-condenser"].energy_usage) != "%.6gkW" % CF.condenser.power_kw: errs.append("condenser power != config")
+if str(hrsg.energy_usage) != "%.6gkW" % CF.heat_recovery.power_kw: errs.append("hrsg power != config")
+if amt(hr, 'in', 'water') != CF.heat_recovery.water_per_second or amt(hr, 'out', 'ipp-flue-gas') != CF.heat_recovery.flue_gas_per_second: errs.append("hrsg recipe != config")
+bank = raw.accumulator["ipp-startup-bank"]
+if str(bank.energy_source.buffer_capacity) != "%.6gMJ" % CF.startup_bank.capacity_mj: errs.append("bank capacity != config")
+for tn, key in (("ipp-industrial-steam-power", "industrial_steam_power"), ("ipp-combined-cycle-power", "combined_cycle_power"), ("ipp-startup-energy-storage", "startup_energy_storage")):
+    u = raw.technology[tn].unit
+    if u.count != CF.research[key].count or u.time != CF.research[key].time: errs.append(tn + ": research cost != config")
+for tn, key in (("ipp-large-steam-turbine-generator", "large_steam"), ("ipp-gas-turbine-generator", "gas")):
+    if raw["fusion-generator"][tn].max_health != CF.turbines[key].health: errs.append(tn + ": health != config")
 print("PROBLEMS:" if errs else "ALL CHECKS PASSED")
 for e in errs: print(" -", e)
 sys.exit(1 if errs else 0)

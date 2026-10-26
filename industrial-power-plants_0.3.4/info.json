@@ -4,6 +4,6 @@
   "title": "Industrial Power Plants",
   "author": "Claude",
   "factorio_version": "2.1",
-  "description": "Tier 1 industrial coal-fired steam and Tier 2 combined-cycle gas power stations, built on native fusion-generator turbines (fluid in, electricity and fluid out). First slice of a six-tier power-plant overhaul. Requires Space Age.",
+  "description": "Industrial combined-cycle gas power stations (fuel-gas conditioner, gas turbine, heat-recovery steam generator, large steam turbine), built on native fusion-generator turbines (fluid in, electricity and fluid out). Requires Space Age.",
   "dependencies": ["base >= 2.1.0", "space-age >= 2.1.0"]
 }
