@@ -1,0 +1,13 @@
+{
+  "scale": 0.5,
+  "filenames": [
+    "conduit-emission.png"
+  ],
+  "line_length": 10,
+  "lines_per_file": 10,
+  "frame_count": 60,
+  "draw_as_glow": true,
+  "blend_mode": "additive",
+  "width": 200,
+  "height": 290
+}
