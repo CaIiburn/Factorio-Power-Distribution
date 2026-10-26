@@ -1,0 +1,50 @@
+---------------------------------------------------------------------------------------------------
+Version: 0.3.4
+Date: 2026-10-24
+  Bugfixes:
+    - Turbine pipe connections are rebuilt from scratch (flow direction, direction, position only). The previous
+      version copied the vanilla fusion generator's connections and only moved them, keeping fields such as
+      connection_category (Space Age's fusion plasma ports use a special category that ordinary pipes cannot
+      attach to). Dropped fields are written to factorio-current.log ("connection dropped fields").
+---------------------------------------------------------------------------------------------------
+Version: 0.3.3
+Date: 2026-10-24
+  Bugfixes:
+    - Steam turbines now burn industrial steam as a fuel (fuel_value 50 kJ/unit) like the gas turbine burns fuel gas.
+      No fluid temperatures are used any more. Fixes: turbine description showing "0 degrees", normal pipes refusing
+      to connect (boiler/heat-recovery outputs were locked to 250 degC, the turbine port only takes default
+      temperature) and turbines making no power (a temperature window switched them off).
+    - Fluid boxes sized for 3 s of flow (2.1.7 derives throughput from fluid-box volume).
+---------------------------------------------------------------------------------------------------
+Version: 0.3.2
+Date: 2026-10-24
+  Minor:
+    - Removed a pre-2.0 `animation` branch that no longer exists on assembling machines.
+    - Silenced editor (Lua language server) typedef warnings that do not affect the game: defaulted fields reported
+      as required on pipe connections / effect receivers, and the 2.1.22 fusion-generator temperature fields.
+---------------------------------------------------------------------------------------------------
+Version: 0.3.1
+Date: 2026-10-24
+  Bugfixes:
+    - Fixed load-time error "Filters can only be used when registering single non custom-input events":
+      stack lifecycle events are now registered one at a time.
+---------------------------------------------------------------------------------------------------
+Version: 0.3.0
+Date: 2026-10-24
+  Changes:
+    - Turbine footprints scaled up (steam x2, large steam x3, gas x3 of the vanilla fusion generator).
+    - Exhaust stack now chooses its vent recipe automatically (scripts/stacks.lua). Vent list in shared/defs.lua,
+      docs/VENTING.md and /ipp-vent-list; vent recipes are generated from the list.
+  Bugfixes:
+    - Steam turbines only accepted steam at 0 degC: 2.1.22 removed FluidBox temperature limits, so the accepted
+      window is now set on the entity (minimum/maximum_input_temperature).
+---------------------------------------------------------------------------------------------------
+Version: 0.2.0
+Date: 2026-10-24
+  Changes:
+    - Turbine-generators are now native fusion-generator entities (one fluid in, electricity and a returned fluid out).
+      Removed: hidden electric buffers, runtime script, raise_on_crafted hooks, neighbour bonus, /ipp-status.
+    - Steam is produced at 250 degC so one unit carries exactly 50 kJ; gas turbine burns fuel gas (fuel_value 1 MJ).
+    - Fuel-gas conditioner now draws 4 MW and carries the combustion pollution.
+  Bugfixes:
+    - Machine graphics keep their vanilla working visualisations (fixes: Working visualisation "warm-up" doesn't exist).
