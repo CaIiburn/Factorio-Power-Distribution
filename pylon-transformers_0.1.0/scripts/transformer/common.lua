@@ -34,6 +34,12 @@ for _, kind in ipairs(C.kinds) do
         -- Additional loss at 100 % load. full_w includes idle_w, so subtract it.
         -- Clamped at 0 so bad data can never turn the transformer into an energy source.
         loss_w = math.max(0, t.full_w - t.idle_w),
+        -- Per tick (the engine's power_production / power_usage are in J per tick): the largest
+        -- output rate, the conversion loss at that rate, and the smallest rate change worth writing.
+        max_tick = t.capacity_w / 60,
+        loss_tick = math.max(0, t.full_w - t.idle_w) / 60,
+        idle_tick = t.idle_w / 60,
+        rate_eps = t.capacity_w / 60 * C.control.tolerance,
         -- Resolution of the power signal in kW.
         power_step = math.max(1, math.floor(t.capacity_w / 1000 * C.signal_power_resolution)),
       }

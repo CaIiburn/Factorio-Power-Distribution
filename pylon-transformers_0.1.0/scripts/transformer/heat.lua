@@ -1,6 +1,6 @@
 -- Heating and cooling of heat-tier transformers, overheating alerts and the explosion.
 --
--- Heat (heat tiers only), computed in the same update as the energy transfer:
+-- Heat (heat tiers only), computed in the same update as the power flow (transfer.lua):
 --   P     = idle_w (only while the input has energy) + loss actually paid / dt
 --   T_eq  = ambient + P / cooling
 --   T     = T_eq + (T - T_eq) * exp(-dt * cooling / specific_heat)
@@ -56,7 +56,7 @@ end
 
 -- Advances the temperature of a heat-tier transformer by dt ticks.
 --   loss       conversion loss actually paid in this update (J)
---   available  energy that was in the input buffer before the transfer (J)
+--   available  energy that was in the input buffer at the start of the update (J)
 -- Returns the rounded temperature for the circuit, or nil when the transformer exploded.
 local function step(rec, unit_number, tick, dt, dt_s, loss, available)
   local info = rec.info

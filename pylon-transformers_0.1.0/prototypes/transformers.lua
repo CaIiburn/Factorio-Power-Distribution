@@ -220,27 +220,28 @@ for _, kind in ipairs(C.kinds) do
         allow_copy_paste = false,
       }
 
-      -- Input half: buffered consumer. Native engine drain = idle loss.
-      -- (Conversion loss is applied by control.lua on every transfer.)
+      -- Input half: buffered consumer. Native engine drain = idle loss. The script sets its power
+      -- usage (output rate plus conversion loss), see scripts/transformer/transfer.lua.
       local inp = table.deepcopy(half_common)
       inp.name = C.in_name(kind, tier, size)
       inp.energy_source = {
         type = "electric",
         usage_priority = "primary-input",
-        buffer_capacity = J(in_limit * interval_s * C.buffer_safety),
+        buffer_capacity = J(in_limit / 60 * (N + C.control.input_extra_ticks)),
         input_flow_limit = W(in_limit),
         output_flow_limit = "0W",
         drain = W(idle_w),
       }
       out[#out + 1] = inp
 
-      -- Output half: buffered producer. output_flow_limit is the hard rated-power cap.
+      -- Output half: buffered producer. output_flow_limit is the hard rated-power cap. The script
+      -- sets its power production, the buffer between the two is sized in config.lua (C.control).
       local outp = table.deepcopy(half_common)
       outp.name = C.out_name(kind, tier, size)
       outp.energy_source = {
         type = "electric",
         usage_priority = "primary-output",
-        buffer_capacity = J(rated * interval_s * C.buffer_safety),
+        buffer_capacity = J(rated * math.max(C.control.min_buffer_ticks / 60, interval_s / C.control.target)),
         input_flow_limit = "0W",
         output_flow_limit = W(rated),
         drain = "0W",

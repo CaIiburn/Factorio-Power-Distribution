@@ -53,6 +53,9 @@ local HELPERS = {
   {
     key = "input",
     create = function(shell, info) return create_at_end(shell, info.in_name, -1) end,
+    init = function(rec, half)
+      rec.in_size = half.electric_buffer_size
+    end,
   },
   {
     key = "output",
@@ -61,6 +64,7 @@ local HELPERS = {
       local size = half.electric_buffer_size
       half.energy = size
       rec.out_size = size
+      rec.out_target = size * C.control.target
     end,
   },
   -- Ports: step-up = feeder-in + pylon-out, step-down = pylon-in + distribution-out. A new port
@@ -94,7 +98,7 @@ local Helpers = {}
 -- Returns true when everything the transformer needs exists afterwards.
 function Helpers.ensure(rec)
   local shell, info = rec.shell, rec.info
-  local complete = true
+  local complete, created = true, false
 
   for _, spec in ipairs(HELPERS) do
     if info.heat or not spec.heat_only then
@@ -102,6 +106,7 @@ function Helpers.ensure(rec)
       local entity = rec[key]
       if not (entity and entity.valid) then
         entity = spec.create(shell, info)
+        created = true
         rec[key] = entity
         if entity and spec.init then spec.init(rec, entity) end
         if not (entity and entity.valid) then complete = false end
@@ -109,7 +114,20 @@ function Helpers.ensure(rec)
     end
   end
 
+  if created then Helpers.reset_rates(rec) end
   return complete
+end
+
+-- Both halves start without a rate (the engine's default), and the controller starts from the
+-- current level of the output buffer. Called whenever a half was newly created.
+function Helpers.reset_rates(rec)
+  rec.prod, rec.usage, rec.vrate = 0, 0, 0
+  local input, output = rec.input, rec.output
+  if input and input.valid then input.power_usage = 0 end
+  if output and output.valid then
+    output.power_production = 0
+    rec.out_prev = output.energy
+  end
 end
 
 -- Destroys every helper of the record and forgets it.
@@ -157,6 +175,7 @@ function Helpers.rebuild(rec, player_index)
   end
   if out_energy then
     rec.output.energy = math.min(out_energy, rec.output.electric_buffer_size)
+    rec.out_prev = rec.output.energy
   end
   if temperature and rec.heat then
     rec.heat.temperature = temperature

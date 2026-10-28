@@ -39,9 +39,32 @@ C.ports = {
 -- past the shell's collision box). Used for the "not inside a pole's supply area" rule.
 C.footprint = { long = C.half_offset + C.half_box, short = 0.85 }
 
--- Buffers must carry a transformer between two script updates, with a safety factor.
--- Buffer capacity multiplier over what is needed between two script updates.
-C.buffer_safety = 1.1
+-- Power flow control. A transformer does not move energy in bursts: the script sets two constant
+-- rates (the output half produces `rate`, the input half consumes `rate` plus the conversion loss),
+-- so the input network sees a steady draw that only changes when the load does. The output buffer is
+-- the shock absorber between the rate and what the consumers take.
+--   target             the output buffer level the controller holds, as a fraction of the buffer.
+--   min_buffer_ticks   the output buffer holds at least this many ticks of rated output (and at
+--                      least 1 / target update intervals), so from the target level it carries a jump
+--                      from no load to full load until the rate has caught up, and has the same room
+--                      above it. It does not depend on the update interval, so a short interval
+--                      is as steady as a long one.
+--   settle_ticks       the buffer level is brought back to the target within about this many ticks
+--                      (at least two update intervals)
+--   smoothing_ticks    time constant of the rate's approach to the wanted rate. Higher is steadier for
+--                      the power plants, and needs more buffer to follow fast load changes.
+--   tolerance          rate changes smaller than this fraction of the rated rate are not applied
+--   input_extra_ticks  the input buffer holds one update interval plus this many ticks of the largest
+--                      possible draw. It is the energy the transformer can deliver after its input
+--                      network is cut, and it caps the draw (see transfer.lua).
+C.control = {
+  target = 0.5,
+  min_buffer_ticks = 60,
+  settle_ticks = 20,
+  smoothing_ticks = 15,
+  tolerance = 0.002,
+  input_extra_ticks = 4,
+}
 
 local e6 = 1000000
 
@@ -146,7 +169,7 @@ C.explosion_effect = {
 
 -- Loss model:  loss(load) = idle_w + (full_w - idle_w) * (load / capacity_w)^2
 --   idle_w  is applied by the engine as the input half's drain (constant, always on).
---   The squared part is applied by control.lua on every transfer.
+--   The squared part is applied through the input half's power usage (transfer.lua).
 --   full_w  is the TOTAL loss at 100 % load (idle_w included), so full_w must be >= idle_w.
 --
 -- The table is generated from loss fractions of rated capacity so the efficiency curves stay

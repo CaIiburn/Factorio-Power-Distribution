@@ -39,8 +39,8 @@ C.fluids = {
 -- Defaults: large steam 450 x 50 kJ x 0.985 = 22.2 MW,  gas 84 x 1 MJ x 0.54 = 45.4 MW.
 --------------------------------------------------------------------------------------------------
 C.turbines = {
-  large_steam = { fluid_per_second = 450, effectivity = 0.985, output_limit_mw = nil, health = 1800, size_multiplier = 3 },
-  gas         = { fluid_per_second = 84,  effectivity = 0.54,  output_limit_mw = nil, health = 1800, size_multiplier = 3 },
+  large_steam = { fluid_per_second = 500, effectivity = 1, output_limit_mw = nil, health = 1800, size_multiplier = 3 },
+  gas         = { fluid_per_second = 100,  effectivity = 0.5,  output_limit_mw = nil, health = 1800, size_multiplier = 3 },
 }
 
 --------------------------------------------------------------------------------------------------
@@ -51,8 +51,8 @@ C.turbines = {
 --   pollution_per_minute: emissions while working (stands in for the plant's combustion pollution)
 --------------------------------------------------------------------------------------------------
 C.conditioner = {
-  petroleum_gas_per_second = 105,
-  fuel_gas_per_second      = 84,
+  petroleum_gas_per_second = 100,
+  fuel_gas_per_second      = 100,
   power_mw                 = 4,
   idle_drain_kw            = 100,
   pollution_per_minute     = 600,
@@ -65,10 +65,10 @@ C.conditioner = {
 --   size : square footprint in tiles, odd number >= 3 (default 5). Two pipes per face, one tile either side of centre.
 --------------------------------------------------------------------------------------------------
 C.heat_recovery = {
-  hot_exhaust_per_second = 84,
-  water_per_second       = 450,
-  steam_per_second       = 450,
-  flue_gas_per_second    = 84,
+  hot_exhaust_per_second = 100,
+  water_per_second       = 500,
+  steam_per_second       = 500,
+  flue_gas_per_second    = 100,
   power_kw               = 500,
   idle_drain_kw          = 20,
   health                 = 400,
@@ -80,8 +80,8 @@ C.heat_recovery = {
 --   size : square footprint in tiles, odd number >= 1 (default 3).
 --------------------------------------------------------------------------------------------------
 C.condenser = {
-  exhaust_steam_per_second = 270,
-  water_per_second         = 260,
+  exhaust_steam_per_second = 300,
+  water_per_second         = 250,
   power_kw                 = 250,
   idle_drain_kw            = 10,
   health                   = 400,

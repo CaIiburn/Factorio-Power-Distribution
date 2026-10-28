@@ -88,7 +88,7 @@ This is on purpose: the game flips a blueprint by turning the direction names as
 | Loss | How it works |
 |---|---|
 | Idle | Constant, drawn from the input network at all times (the engine drain of the input half). |
-| Conversion | Grows with the square of the load: `(full_w - idle_w) * load^2`. Applied by the script on every transfer. |
+| Conversion | Grows with the square of the load: `(full_w - idle_w) * load^2`. Paid through the input half's power usage, so it shows up in the constant draw. |
 
 Total loss at a given load: `loss = idle_w + (full_w - idle_w) * (load / capacity_w)^2`.
 
@@ -140,7 +140,7 @@ The art is original (`make_radiator_graphics.py` draws it): no sprite with a cle
 
 | Setting | Type | Default | Effect |
 |---|---|---|---|
-| `pt-update-interval` | startup | 10 ticks (1-60) | Ticks between two transfer updates of a transformer. Higher is cheaper but makes the buffers larger (handled automatically). |
+| `pt-update-interval` | startup | 10 ticks (1-60) | Ticks between two controller updates of a transformer. Higher is cheaper. The draw is constant at any value; short intervals follow load changes faster, long ones need bigger buffers (handled automatically) and follow brownouts more coarsely. |
 | `pt-explosions` | runtime, global | on | Whether heat-tier transformers explode. When off they still heat up and raise alerts. |
 | `pc-network-cap-multiplier` | startup | 1 (0.25-10) | Scales the pole-count cap of every network. |
 | `pc-enforce-script-built` | startup | off | Makes entities built by other mods' scripts obey the placement rules (default: warn only). |
@@ -161,9 +161,21 @@ Every transformer is made of these entities:
 
 The halves and ports sit on the two ends of the shell, 1.8 tiles from its centre along the long axis (`half_offset` in `config.lua`). A port's supply area (0.15) covers only the half at its end, so the port's network is connected to that half and nothing else.
 
-The engine does the idle drain, power cap and buffering. A script moves energy from the input buffer to the output buffer once every N ticks (N = update interval): it tops the output buffer up to full, takes that amount plus the conversion loss from the input buffer, and scales both down if the input cannot pay. The transformers are split into N buckets, so each tick services about 1/N of them. Buffers are sized to carry a transformer through one update interval with a 1.1x safety factor (`buffer_safety`), so there are no brownouts between updates.
+The engine does the idle drain, power cap and buffering. The script does not move energy in bursts, it sets **rates**: the output half produces `rate` per tick (`power_production`) and the input half consumes `rate` plus the conversion loss per tick (`power_usage`), and the engine keeps doing that every tick. So the input network sees a **constant draw** that only changes when the load really changes, instead of a pulse once per update interval (which made power plants flicker).
 
-**UPS.** The pole classes have no `on_tick` handler: build events are filtered by name, and the two high-frequency events (hover, position) are registered only while a player holds a wire or a pole. Network walks stop as soon as the cap is exceeded. The transformers cost one bucket per tick, and the held-transformer overlay runs only while a transformer is held.
+Every N ticks (N = update interval) the controller of a transformer:
+
+1. works out what the consumers took out of the output buffer since the last update (`rate * dt + level then - level now`),
+2. takes that as the wanted rate, plus a correction that brings the buffer level back to its target (half full) within `settle_ticks`,
+3. smooths it (time constant `smoothing_ticks`, so it does not depend on N),
+4. **caps it by what the input buffer holds** (see below), and writes it to the engine only when it moved by more than 0.2 % of the rated rate or the cap pulled it down. A steady load causes no writes at all,
+5. sets the input draw to `rate + (full_w - idle_w) * (rate / rated)^2` (the idle part is the engine drain of the input half).
+
+The output buffer is the shock absorber between the rate and what the consumers take: it holds at least `min_buffer_ticks` (60) ticks of rated output, and at least 2 update intervals, so a jump from no load to full load is carried while the rate catches up (about 50-80 ticks), and the surplus when the load drops has room too. All of this is in `C.control` in `config.lua`.
+
+**Energy is never created.** The output half produces at whatever rate it is told, whether or not the input half actually received the energy, so the script has to make sure the input pays. The input buffer holds one update interval plus `input_extra_ticks` (4) ticks of the largest draw, and at every update the draw is capped at `buffer level / N - idle drain`, so the buffer can pay for everything produced until the next update. With a healthy input network the buffer is full and the cap never bites. If the network cannot supply the transformer (overdraw, brownout), the buffer runs down, the cap falls to what the network does supply and the rate follows at once, without smoothing. If the input network is cut, the transformer delivers what is in its input buffer (at most N + 4 ticks of its largest draw) and stops. (An earlier version of this mod detected starvation only through the buffer level and smoothed the rate down; under overdraw it produced about twice what it drew, in a sawtooth. The flow test now checks conservation in every scenario, overdraw and a cut input included.) If the consumers take much less than was produced, the output buffer fills and the surplus is lost (at most about an interval of rated output). The transformers are split into N buckets, so each tick services about 1/N of them.
+
+**UPS.** Between updates a transformer costs nothing: the engine runs the rates. An update reads the output buffer (and the input buffer while the transformer is drawing), writes the rates only when they changed, and does a cheap validity check of the three helper entities; the full helper check (ports included) runs every 600 ticks. The pole classes have no `on_tick` handler: build events are filtered by name, and the two high-frequency events (hover, position) are registered only while a player holds a wire or a pole. Network walks stop as soon as the cap is exceeded. The transformers cost one bucket per tick, and the held-transformer overlay runs only while a transformer is held.
 
 **Events.** Both parts share one event bus (`scripts/bus.lua`), which registers each event with the engine once and runs every module's handler for it.
 
@@ -206,6 +218,10 @@ The data stage and the runtime load were exercised against a stubbed Factorio AP
 17. Flipped blueprints (F / G with a blueprint in hand): with the output end where the shell faces, does a flipped transformer keep its input and output ends in all four directions, in both flips, and do the port wires come out on the mirrored poles (pasted by hand and built by robots from ghosts)?
 18. Orientation: does every direction show the right art (plug at the input end, bolt at the output end), the right footprint, and the circuit wire attachment on the same long side as before? Is a save from before the change (transformers and ghosts) turned one step on load so that nothing moves and the energy flows the same way?
 19. Radiator: with `full_load_count = 4`, do 4 radiators next to a T4 medium transformer at full load hold it at or below the alert temperature (about 284 degrees C), and 2 radiators a T3 one (about 214)? Measure the cooling of one radiator on a heat pipe at a known temperature: is it about 3 kW per degree C of difference (with the default `exchange_factor = 1`)? If it is a constant factor off, set `exchange_factor`. Does the radiator connect to the transformer's hidden heat pipe on a long side, and to ordinary heat pipes on all four sides? Does "at most 15 degrees C" keep it at ambient (the setting is made when it is built, from a blueprint, by a robot and by cloning)? Does the heat pipe line between a transformer and a radiator carry the heat well enough, or does it need to be short?
+20. Flow control (the one thing the model rests on): are `power_production` of the output half and `power_usage` of the input half in J per tick (the old forum posts say so)? Does the output half really produce at that rate every tick while its buffer has room, and lose the surplus when the buffer is full? Does the input half really consume at `power_usage` plus its drain, and does its buffer level drop when the input network cannot supply it (this is what the controller uses to detect starvation)?
+21. Overdraw and cut input (the failure that was found in game): with the plant's supply below the demand, does the energy delivered stay at or below what the plant supplies (minus the losses), and is the draw flat instead of a sawtooth? When the input line is cut, does the transformer stop delivering within a second or two?
+22. Constant draw: with a steady factory load, is the power graph of the input network flat (no 10-tick pulses)? Does a brownout of the input network (switch off the plants for a few seconds) slow the transformers down and recover without sticking? Does an old save (flow version 1) get its halves replaced once on load, with the energy kept?
+23. Cost: compare the mod's per-update time with 22 transformers at `pt-update-interval` 1, 10 and 60 (the earlier burst design used 0.2 ms at 1). If the update is still too expensive at 1, raise the interval: the draw does not depend on it.
 
 ## Graphics
 

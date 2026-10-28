@@ -23,6 +23,10 @@ local N, shells = Common.N, Common.shells
 -- Bump when the layout of storage.transformers records changes incompatibly.
 local STORAGE_VERSION = 2
 
+-- Which version of the power flow the helpers belong to: 3 = the halves run at set rates and the input buffer pays
+-- for the output (transfer.lua, C.control). Older saves have energy halves with other buffer sizes: they are made again.
+local FLOW_VERSION = 3
+
 -- Which way the shell's direction names point (see OUTPUT_VECTOR in common.lua). Saves without
 -- this number were made when "north" meant "output on the right", one clockwise step off.
 local SHELL_FRAME = 2
@@ -124,8 +128,32 @@ local function init_storage()
       Helpers.destroy(rec)
       if rec.shell and rec.shell.valid then register(rec.shell) end
     end
+    storage.flow_version = FLOW_VERSION
   else
     rebuild_buckets()
+  end
+
+  -- A record keeps a copy of its shell's info table from the time it was made, and a save stores
+  -- that copy: after a mod update it lacks the fields that were added since. Point every record at
+  -- the current table (the info of a shell that is gone stays; on_tick removes that record).
+  for _, rec in pairs(storage.transformers) do
+    local shell = rec.shell
+    if shell and shell.valid then rec.info = shells[shell.name] or rec.info end
+  end
+
+  if storage.flow_version ~= FLOW_VERSION then
+    -- Only the energy halves change, the ports (and their wires) and the heat pipes stay.
+    if not fresh then
+      for _, rec in pairs(storage.transformers) do
+        for _, key in ipairs({ "input", "output" }) do
+          local half = rec[key]
+          if half and half.valid then half.destroy() end
+          rec[key] = nil
+        end
+        if rec.shell and rec.shell.valid then Helpers.ensure(rec) end
+      end
+    end
+    storage.flow_version = FLOW_VERSION
   end
 end
 
