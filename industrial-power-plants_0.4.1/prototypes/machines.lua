@@ -401,3 +401,9 @@ building("ipp-gas-turbine-generator", 15, { {"item",F,5}, {"item","ipp-high-spee
 building("ipp-heat-recovery-steam-generator", 12, { {"item",F,3}, {"item","ipp-pressure-vessel",3}, {"item","ipp-heat-exchanger-panel",12}, {"item","pipe",20}, {"item","ipp-pump-assembly",2} })
 building("ipp-large-steam-turbine-generator", 15, { {"item",F,4}, {"item","ipp-turbine-rotor",4}, {"item","ipp-high-speed-rotor",2}, {"item","ipp-generator-winding",4}, {"item","ipp-pressure-vessel",2}, {"item","ipp-control-cabinet",1} })
 building("ipp-startup-bank", 10, { {"item",F,2}, {"item","ipp-turbine-rotor",2}, {"item","ipp-generator-winding",4}, {"item","battery",30} })
+
+-- Shared with prototypes/nuclear.lua (Tier 3), which builds its machines and recipes the same way.
+return {
+  build_machine = build_machine, item_for = item_for, elec = elec, VOID = VOID, vol = vol, unit = unit,
+  process = process, building = building, box_corners = box_corners,
+}

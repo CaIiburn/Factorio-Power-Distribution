@@ -17,9 +17,9 @@ The single source of truth is `D.vent` in `shared/defs.lua`; vent recipes are ge
 
 | Fluid | Reason |
 |---|---|
-| Industrial steam, steam, water | valuable working fluid: send it to its consumer |
+| Industrial steam, high-pressure steam, steam, water, cooling water, warm cooling water | valuable working fluid: send it to its consumer |
 | Fuel gas, petroleum gas, light oil, heavy oil, crude oil | fuel: burn it instead |
-| Lubricant, sulfuric acid | hazardous: not allowed to be released |
+| Lubricant, sulfuric acid, primary water, hot primary water, reprocessing solvent | hazardous (the primary water is radioactive): not allowed to be released |
 | Anything else (including other mods' fluids) | not on the vent list |
 
 If the connected pipe holds several fluids, a ventable fluid wins over a refused one.

@@ -44,7 +44,7 @@ local function am(name, sz)
     icon = "__base__/graphics/icons/" .. name .. ".png", icon_size = 64 }
 end
 raw["assembling-machine"] = {}
-for n, sz in pairs{["assembling-machine-1"]=3,["assembling-machine-2"]=3,["chemical-plant"]=3,["centrifuge"]=3,["foundry"]=5,["electromagnetic-plant"]=4,["oil-refinery"]=5} do
+for n, sz in pairs{["assembling-machine-1"]=3,["assembling-machine-2"]=3,["assembling-machine-3"]=3,["chemical-plant"]=3,["centrifuge"]=3,["foundry"]=5,["electromagnetic-plant"]=4,["oil-refinery"]=5} do
   raw["assembling-machine"][n] = am(n, sz)
 end
 raw["fusion-generator"] = { ["fusion-generator"] = { type="fusion-generator", name="fusion-generator",
@@ -59,13 +59,42 @@ raw["fusion-generator"] = { ["fusion-generator"] = { type="fusion-generator", na
 raw.accumulator = { accumulator = { type="accumulator", name="accumulator", energy_source={}, collision_box={{-.9,-.9},{.9,.9}},
   chargable_graphics = { picture = sprite("acc.png"), charge_animation = sprite("c.png") }, water_reflection = { pictures = sprite("r.png") } } }
 raw.item, raw.fluid, raw.technology, raw.recipe = {}, {}, {}, {}
-for _, n in ipairs{"fusion-generator","steel-chest","electric-engine-unit","pump","copper-cable","iron-gear-wheel","heat-pipe","stone-brick","steel-plate","storage-tank","plastic-bar","advanced-circuit","engine-unit","coal","stone","accumulator","iron-plate","copper-plate","pipe","electronic-circuit","sulfur","battery","iron-ore","concrete"} do
+for _, n in ipairs{"fusion-generator","steel-chest","electric-engine-unit","pump","copper-cable","iron-gear-wheel","heat-pipe","stone-brick","steel-plate","storage-tank","plastic-bar","advanced-circuit","engine-unit","coal","stone","accumulator","iron-plate","copper-plate","pipe","electronic-circuit","sulfur","battery","iron-ore","concrete","nuclear-reactor","heat-exchanger","uranium-fuel-cell","depleted-uranium-fuel-cell","uranium-235","uranium-238","barrel"} do
   raw.item[n] = { type="item", name=n, icon="__base__/graphics/icons/"..n..".png", icon_size=64 }
 end
 VANILLA_ITEMS = {}; for k in pairs(raw.item) do VANILLA_ITEMS[k] = true end
-for _, n in ipairs{"steam","petroleum-gas","water","lubricant"} do raw.fluid[n] = { type="fluid", name=n, icon="f.png", icon_size=64 } end
-for _, n in ipairs{"steel-processing","oil-processing","battery","logistic-science-pack","chemical-science-pack","plastics"} do
+
+for _, n in ipairs{"steam","petroleum-gas","water","lubricant","light-oil","sulfuric-acid"} do raw.fluid[n] = { type="fluid", name=n, icon="f.png", icon_size=64 } end
+for _, n in ipairs{"steel-processing","oil-processing","battery","logistic-science-pack","chemical-science-pack","plastics","nuclear-power","nuclear-fuel-reprocessing","sulfur-processing"} do
   raw.technology[n] = { type="technology", name=n, icon="t.png", icon_size=256 } end
+
+local function conn(d, x, y) return { location = { position = {x, y}, direction = d }, category = "nuclear-reactor", neighbour_category = {"nuclear-reactor"} } end
+raw.reactor = { ["nuclear-reactor"] = { type="reactor", name="nuclear-reactor", flags={}, minable={result="nuclear-reactor"}, fast_replaceable_group="reactor",
+  max_health=500, consumption="40MW", neighbour_bonus=1, dying_explosion="nuclear-reactor-explosion", corpse="nuclear-reactor-remnants",
+  neighbour_connectable = { connections = { conn(0,0,-2.5), conn(4,2.5,0), conn(8,0,2.5), conn(12,-2.5,0) } },
+  energy_source = { type="burner", fuel_categories={"nuclear"}, effectivity=1, fuel_inventory_size=1, burnt_inventory_size=1 },
+  collision_box={{-2.2,-2.2},{2.2,2.2}}, selection_box={{-2.5,-2.5},{2.5,2.5}}, temperature_to_suppress_energy_icons=800,
+  lower_layer_picture = sprite("pipes.png"), picture = { layers = { sprite("r.png"), { filename="s.png", width=10, height=10, draw_as_shadow=true } } },
+  heat_buffer = { max_temperature=1000, specific_heat="10MJ", max_transfer="10GW", connections={} },
+  meltdown_action = { type="direct", action_delivery={ type="instant" } }, default_temperature_signal={type="virtual",name="signal-T"},
+  circuit_connector = { { points = { wire = { red = {0.9, 1.2} } } } } } }
+raw.boiler = { ["heat-exchanger"] = { type="boiler", name="heat-exchanger", mode="output-to-separate-pipe", target_temperature=500,
+  minable={result="heat-exchanger"}, fast_replaceable_group="heat-exchanger", max_health=200,
+  fluid_box = { volume=200, filter="water", production_type="input", pipe_connections={{flow_direction="input-output",direction=12,position={-1,0.5}}} },
+  output_fluid_box = { volume=200, filter="steam", production_type="output", pipe_connections={{flow_direction="output",direction=0,position={0,-0.5}}} },
+  energy_consumption="10MW", energy_source={type="heat", max_temperature=1000, specific_heat="1MJ", max_transfer="2GW", min_working_temperature=500, connections={}},
+  pictures = { north = { structure = { layers = { sprite("hx.png") } } } } } }
+raw.container = { ["steel-chest"] = { type="container", name="steel-chest", minable={result="steel-chest"}, fast_replaceable_group="container", max_health=350,
+  inventory_size=48, collision_box={{-0.35,-0.35},{0.35,0.35}}, selection_box={{-0.5,-0.5},{0.5,0.5}},
+  picture = { layers = { sprite("c.png"), { filename="cs.png", width=10, height=10, draw_as_shadow=true } } },
+  circuit_connector = { { points = { wire = { red = {0.4, 0.1} }, shadow = { red = {0.5, 0.2} } }, sprites = { connector_main = { filename = "cc.png", shift = {0.4, 0.1} } } } } } }
+raw["virtual-signal"], raw["fuel-category"] = {}, {}
+raw.technology["nuclear-power"].effects = {
+  { type="unlock-recipe", recipe="nuclear-reactor" }, { type="unlock-recipe", recipe="heat-exchanger" }, { type="unlock-recipe", recipe="heat-pipe" },
+  { type="unlock-recipe", recipe="steam-turbine" }, { type="unlock-recipe", recipe="uranium-fuel-cell" } }
+for _, n in ipairs{"heat-pipe", "uranium-fuel-cell"} do
+  raw.recipe[n] = { type="recipe", name=n, enabled=false, ingredients={}, results={} }
+end
 dofile("%s/data.lua")
 ''' % (MOD, MOD))
 g = lua.globals()
@@ -358,6 +387,184 @@ for tn, key in (("ipp-industrial-steam-power", "industrial_steam_power"), ("ipp-
     if u.count != CF.research[key].count or u.time != CF.research[key].time: errs.append(tn + ": research cost != config")
 for tn, key in (("ipp-large-steam-turbine-generator", "large_steam"), ("ipp-gas-turbine-generator", "gas")):
     if raw["fusion-generator"][tn].max_health != CF.turbines[key].health: errs.append(tn + ": health != config")
+
+# ---- Tier 3: pressurized-water nuclear ----
+RC, PU, SGc, SCc = CF.reactor, CF.primary_unit, CF.steam_generator, CF.surface_condenser
+def mw(v):
+    v = str(v)
+    return float(v[:-2]) if v.endswith("MW") else float(v[:-2]) / 1000 if v.endswith("kW") else float(v[:-2]) * 1000 if v.endswith("GW") else float("nan")
+core = raw.reactor[D.REACTOR]
+if core is None: errs.append("reactor core prototype missing")
+else:
+    if abs(mw(core.consumption) - RC.power_mw) > 1e-9: errs.append("core consumption != config")
+    if core.neighbour_bonus != RC.neighbour_bonus: errs.append("core neighbour bonus != config")
+    nc = core.neighbour_connectable.connections
+    for i in range(1, len(nc) + 1):
+        if nc[i].category != "ipp-pwr-reactor" or nc[i].neighbour_category[1] != "ipp-pwr-reactor": errs.append("core neighbour category not private")
+    if core.energy_source.fuel_categories[1] != "ipp-fuel-assembly" or len(core.energy_source.fuel_categories) != 1: errs.append("core must burn only fuel assemblies")
+    if core.energy_source.fuel_inventory_size != RC.fuel_slots or core.energy_source.burnt_inventory_size != RC.spent_slots: errs.append("core slots != config")
+    if core.heat_buffer.max_temperature != RC.max_temperature_c or str(core.heat_buffer.specific_heat) != "%.6gMJ" % RC.specific_heat_mj: errs.append("core heat buffer != config")
+    if core.meltdown_action is None: errs.append("core lost the vanilla meltdown action")
+    if core.dying_explosion is None: errs.append("core lost the vanilla dying explosion")
+    if core.circuit_connector is None: errs.append("core lost its circuit connector")
+    if core.fast_replaceable_group is not None: errs.append("core keeps vanilla fast_replaceable_group")
+    if core.max_health != RC.health: errs.append("core health != config")
+    if core.minable.result != D.REACTOR or D.REACTOR not in items: errs.append("core item/minable")
+    if RC.meltdown_temperature_c <= 0.9 * RC.max_temperature_c: errs.append("meltdown temperature must be above 90 percent of max")
+    print("core: %.0f MW, %.0f MJ/C, window at 3x output from 500 C: %.0f s" % (RC.power_mw, RC.specific_heat_mj, RC.specific_heat_mj * (RC.meltdown_temperature_c - 500) / (RC.power_mw * 3)))
+hx = raw.boiler["ipp-primary-circulation-unit"]
+if hx is None: errs.append("circulation unit prototype missing")
+else:
+    if hx.fluid_box.filter != "ipp-primary-water" or hx.output_fluid_box.filter != "ipp-primary-water-hot": errs.append("circulation unit filters")
+    if hx.target_temperature != PU.target_c or abs(mw(hx.energy_consumption) - PU.power_mw) > 1e-9: errs.append("circulation unit != config")
+    if hx.energy_source.min_working_temperature != PU.min_working_c: errs.append("circulation unit min working temperature")
+    if hx.mode != "output-to-separate-pipe": errs.append("circulation unit mode")
+    if hx.pictures.north.structure.layers[1].tint is None: errs.append("circulation unit sprites are not tinted (vanilla keeps them in `pictures`)")
+    if hx.fluid_box.volume < D.PRIMARY_FLOW * 3 - 1e-6 or hx.output_fluid_box.volume < D.PRIMARY_FLOW * 3 - 1e-6: errs.append("circulation unit volume < 3 s of flow")
+    if hx.fast_replaceable_group is not None: errs.append("circulation unit keeps vanilla fast_replaceable_group")
+for f in ("ipp-primary-water", "ipp-primary-water-hot"):
+    if str(raw.fluid[f].heat_capacity) != "1kJ": errs.append(f + ": heat capacity must be 1kJ (the energy accounting assumes it)")
+if raw.fluid["ipp-primary-water-hot"].max_temperature < PU.target_c: errs.append("hot primary water max temperature below the circulation unit target")
+if raw.fluid["ipp-primary-water"].max_temperature is not None and raw.fluid["ipp-primary-water"].max_temperature != raw.fluid["ipp-primary-water"].default_temperature: errs.append("cool primary water must have no temperature range")
+# energy accounting across the loop
+sgr = recipes["ipp-nuclear-steam-generation"]
+heat_mw = amt(sgr, 'in', 'ipp-primary-water-hot') * D.PRIMARY_UNIT_KJ / 1000
+steam_mw = amt(sgr, 'out', 'ipp-hp-steam') * D.HP_STEAM_KJ / 1000
+hpg = D.generators["ipp-hp-turbine-generator"]
+print("steam generator: %.1f MW of primary heat -> %.1f MW of steam energy; turbine train %.1f MW; condenser rejects %.1f MW" % (heat_mw, steam_mw, hpg.per_second * hpg.effectivity * D.HP_STEAM_KJ / 1000, heat_mw - steam_mw))
+if steam_mw > heat_mw + 1e-9: errs.append("steam generator creates energy")
+if abs(D.PRIMARY_FLOW - amt(sgr, 'in', 'ipp-primary-water-hot')) > 1e-6: errs.append("one circulation unit does not feed one steam generator")
+if amt(sgr, 'in', 'ipp-primary-water-hot') != amt(sgr, 'out', 'ipp-primary-water'): errs.append("primary loop is not closed")
+if amt(sgr, 'in', 'water') != amt(recipes["ipp-surface-condensation"], 'out', 'water'): errs.append("feedwater loop is not closed")
+if amt(sgr, 'out', 'ipp-hp-steam') != hpg.per_second: errs.append("steam generator output != turbine intake")
+sc_r = recipes["ipp-surface-condensation"]
+if amt(sc_r, 'in', 'ipp-exhaust-steam') != hpg.per_second: errs.append("condenser intake != turbine exhaust")
+if amt(sc_r, 'in', 'ipp-cooling-water') != amt(sc_r, 'out', 'ipp-cooling-water-warm'): errs.append("cooling loop gains/loses water at the condenser")
+tw = recipes["ipp-cooling-tower-cycle"]
+if amt(tw, 'in', 'water') >= amt(tw, 'in', 'ipp-cooling-water-warm'): errs.append("tower evaporates more than it moves")
+if amt(tw, 'in', 'ipp-cooling-water-warm') != amt(tw, 'out', 'ipp-cooling-water'): errs.append("tower should return all cooling water (makeup is the loss)")
+# fuel chain
+fa = raw.item["ipp-fuel-assembly"]
+gj = float(str(fa.fuel_value).replace("GJ", ""))
+if abs(gj - CF.fuel_assembly.cells * 8) > 1e-9: errs.append("assembly energy != cells x 8 GJ")
+if fa.burnt_result != "ipp-spent-fuel-assembly" or fa.fuel_categories[1] != "ipp-fuel-assembly": errs.append("assembly fuel category / burnt result")
+if raw["fuel-category"]["ipp-fuel-assembly"] is None: errs.append("fuel category missing")
+if amt(recipes["ipp-fuel-assembly"], 'in', 'uranium-fuel-cell') != CF.fuel_assembly.cells: errs.append("assembly recipe cells != config")
+if raw.item["ipp-spent-fuel-assembly"].fuel_value is not None: errs.append("spent fuel must not burn")
+if amt(recipes["ipp-spent-fuel-cooling"], 'in', 'ipp-spent-fuel-assembly') != 1 or amt(recipes["ipp-spent-fuel-cooling"], 'out', 'ipp-spent-fuel-assembly-cooled') != 1: errs.append("cooling pool recipe")
+if recipes["ipp-spent-fuel-cooling"].energy_required != CF.spent_fuel_pool.cooling_time_s: errs.append("cooling time must be the fixed config time")
+if amt(recipes["ipp-spent-fuel-reprocessing"], 'in', 'ipp-spent-fuel-assembly-cooled') != 1: errs.append("reprocessing must take COOLED fuel only")
+res = recipes["ipp-spent-fuel-reprocessing"].results
+if not any(res[i].name == "uranium-235" and res[i].independent_probability == CF.reprocessing.uranium_235_chance for i in range(1, len(res)+1)): errs.append("uranium-235 recovery chance")
+if amt(recipes["ipp-vitrification"], 'in', 'ipp-radioactive-residue') != CF.vitrifier.residue: errs.append("vitrifier residue != config")
+# every part in the plan table can be crafted and is unlocked by exactly one of the two researches
+for b in ("ipp-pwr-reactor-core", "ipp-primary-circulation-unit", "ipp-nuclear-steam-generator", "ipp-hp-turbine-generator", "ipp-surface-condenser",
+          "ipp-cooling-tower", "ipp-dry-cooler", "ipp-spent-fuel-pool", "ipp-dry-cask-storage", "ipp-reprocessing-plant", "ipp-waste-vitrifier"):
+    if b not in items or recipes[b] is None: errs.append(b + ": no item or recipe")
+    elif b not in unlocked: errs.append(b + ": not unlocked")
+t3 = {r: unlocked[r][0] for r in unlocked if unlocked[r][0] in ("ipp-pressurized-water-power", "ipp-nuclear-reprocessing")}
+for b in ("ipp-reprocessing-plant", "ipp-waste-vitrifier", "ipp-vitrification", "ipp-spent-fuel-reprocessing"):
+    if t3.get(b) != "ipp-nuclear-reprocessing": errs.append(b + " belongs to the optional reprocessing research")
+for b in ("ipp-pwr-reactor-core", "ipp-spent-fuel-pool", "ipp-dry-cask-storage", "ipp-fuel-assembly"):
+    if t3.get(b) != "ipp-pressurized-water-power": errs.append(b + " belongs to the base tier 3 research")
+for tn, key in (("ipp-pressurized-water-power", "pressurized_water_power"), ("ipp-nuclear-reprocessing", "nuclear_reprocessing")):
+    u = raw.technology[tn].unit
+    if u.count != CF.research[key].count or u.time != CF.research[key].time: errs.append(tn + ": research cost != config")
+# components named in the plan table
+for c in ("ipp-nuclear-shielding", "ipp-control-rod-assembly", "ipp-radhard-controller", "ipp-reinforced-pipe", "ipp-chemical-resistant-pipe"):
+    if c not in items: errs.append("missing component " + c)
+# control-rod signals
+for sg_name in (D.SIGNAL_ROD, D.SIGNAL_SCRAM):
+    if raw["virtual-signal"][sg_name] is None: errs.append("virtual signal missing: " + sg_name)
+# vanilla replacement
+ne = raw.technology["nuclear-power"].effects
+left = [ne[i].recipe for i in range(1, len(ne)+1)]
+if CF.replace_vanilla_nuclear:
+    for dropped in ("nuclear-reactor", "heat-exchanger", "steam-turbine"):
+        if dropped in left: errs.append("vanilla nuclear-power still unlocks " + dropped)
+    for kept in ("heat-pipe", "uranium-fuel-cell"):
+        if kept not in left: errs.append("vanilla nuclear-power lost " + kept)
+# 2.1 fluid rule: a boiler pipe connection and every new machine port sit on valid edge tiles (generic check above covers machines)
+# new machines: footprints follow config
+for ent, want in (("ipp-nuclear-steam-generator", SGc.size), ("ipp-surface-condenser", SCc.size), ("ipp-cooling-tower", CF.cooling_tower.size),
+                  ("ipp-dry-cooler", CF.dry_cooler.size), ("ipp-spent-fuel-pool", CF.spent_fuel_pool.size),
+                  ("ipp-reprocessing-plant", CF.reprocessing.size), ("ipp-waste-vitrifier", CF.vitrifier.size)):
+    if side(am[ent].selection_box) != (want, want): errs.append("%s footprint %s != configured %d" % (ent, side(am[ent].selection_box), want))
+cask = raw.container["ipp-dry-cask-storage"]
+if side(cask.selection_box) != (CF.dry_cask.size,) * 2 or cask.inventory_size != CF.dry_cask.inventory_slots: errs.append("dry cask != config")
+if abs(cask.picture.layers[1].scale - CF.dry_cask.size) > 1e-9: errs.append("dry cask sprite not scaled once to its size")
+if str(am["ipp-nuclear-steam-generator"].energy_usage) != "%.6gMW" % SGc.power_mw: errs.append("steam generator power != config")
+if am["ipp-nuclear-steam-generator"].energy_source.drain is None: errs.append("steam generator must idle on a drain, it must not be free")
+for tn in ("ipp-hp-turbine-generator",):
+    if raw["fusion-generator"][tn].max_health != CF.turbines.hp.health: errs.append(tn + ": health != config")
+# 2.1 renamed product 'probability' to 'independent_probability' (the old name stops the mod from loading)
+for rn in recipes.keys():
+    for key in ("ingredients", "results"):
+        arr = recipes[rn][key]
+        if arr is None: continue
+        for i in range(1, len(arr)+1):
+            if arr[i].probability is not None: errs.append("%s: %s %s uses the removed 'probability' field" % (rn, key, arr[i].name))
+
+# ---- every property name must exist in the 2.1 prototype API (skipped when prototype-api.json is not next to the mod) ----
+import json
+API = os.path.join(os.path.dirname(MOD), "prototype-api.json")
+if os.path.exists(API):
+    api = json.load(open(API))
+    defs_by_name = {x["name"]: x for x in api["prototypes"] + api["types"]}
+    by_typename = {x["typename"]: x["name"] for x in api["prototypes"] if x.get("typename")}
+    def props_of(tname):
+        out, seen = set(), set()
+        while tname and tname in defs_by_name and tname not in seen:
+            seen.add(tname); d = defs_by_name[tname]
+            out |= {pr["name"] for pr in d.get("properties", [])}
+            tname = d.get("parent")
+        return out
+    def keys(t):
+        return [k for k in t.keys() if isinstance(k, str)]
+    skipped = set()
+    for ptype in list(raw.keys()):
+        for pname in list(raw[ptype].keys()):
+            if not str(pname).startswith("ipp-"): continue
+            proto = raw[ptype][pname]
+            if ptype not in by_typename: skipped.add(ptype); continue
+            ok = props_of(by_typename[ptype]) | {"type", "name"}
+            for k in keys(proto):
+                if k not in ok: errs.append("%s %s: property '%s' does not exist in the 2.1 API" % (ptype, pname, k))
+
+            def nested(t, tname, where):
+                if t is None or tname not in defs_by_name: return
+                allowed = props_of(tname) | {"type"}
+                for k in keys(t):
+                    if k not in allowed: errs.append("%s %s %s: '%s' does not exist in %s" % (ptype, pname, where, k, tname))
+            if proto["icons"] is not None:
+                for i in range(1, len(proto["icons"]) + 1): nested(proto["icons"][i], "IconData", "icons[%d]" % i)
+            if ptype == "technology":
+                nested(proto.unit, "TechnologyUnit", "unit")
+                if proto.effects:
+                    for i in range(1, len(proto.effects) + 1): nested(proto.effects[i], "UnlockRecipeModifier", "effects[%d]" % i)
+            if ptype == "boiler":
+                nested(proto.fluid_box, "FluidBox", "fluid_box"); nested(proto.output_fluid_box, "FluidBox", "output_fluid_box")
+                for bx in ("fluid_box", "output_fluid_box"):
+                    for i in range(1, len(proto[bx].pipe_connections) + 1): nested(proto[bx].pipe_connections[i], "PipeConnectionDefinition", bx + ".pipe_connections")
+                nested(proto.energy_source, "HeatEnergySource", "energy_source")
+            if ptype == "reactor":
+                nested(proto.heat_buffer, "HeatBuffer", "heat_buffer")
+                nested(proto.energy_source, "BurnerEnergySource", "energy_source")
+            if ptype == "assembling-machine" and proto.fluid_boxes:
+                for i in range(1, len(proto.fluid_boxes) + 1):
+                    nested(proto.fluid_boxes[i], "FluidBox", "fluid_boxes[%d]" % i)
+                    for j in range(1, len(proto.fluid_boxes[i].pipe_connections) + 1): nested(proto.fluid_boxes[i].pipe_connections[j], "PipeConnectionDefinition", "fluid_boxes[%d].pipe_connections" % i)
+            if ptype == "recipe":
+                for arr_name, base in (("ingredients", "Ingredient"), ("results", "Product")):
+                    arr = proto[arr_name]
+                    if arr is None: continue
+                    for i in range(1, len(arr) + 1):
+                        e = arr[i]; kind = "Item" if e.type == "item" else "Fluid"
+                        allowed = props_of(kind + base + "Prototype") | {"type"}
+                        for k in keys(e):
+                            if k not in allowed: errs.append("recipe %s %s[%d]: '%s' is not a %s%sPrototype property" % (pname, arr_name, i, k, kind, base))
+    if skipped: print("API name check: no API entry for", sorted(skipped))
+    print("API name check done")
 print("PROBLEMS:" if errs else "ALL CHECKS PASSED")
 for e in errs: print(" -", e)
 sys.exit(1 if errs else 0)

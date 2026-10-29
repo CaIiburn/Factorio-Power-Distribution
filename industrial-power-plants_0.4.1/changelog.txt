@@ -1,4 +1,35 @@
 ---------------------------------------------------------------------------------------------------
+Version: 0.4.1
+Date: 2026-10-29
+  Bugfixes:
+    - Fixed load error in recipe ipp-spent-fuel-reprocessing: 2.1 renamed the product field 'probability' to
+      'independent_probability' (helper U.stacks).
+    - The primary circulation unit's sprites were never tinted: the vanilla boiler keeps them in `pictures`.
+  Minor:
+    - test_data.py now checks every property name of the mod's prototypes (and nested icon, tech-unit, effect, fluid-box and
+      energy-source tables) against prototype-api.json when it sits next to the mod folder, and rejects the removed
+      'probability' field.
+---------------------------------------------------------------------------------------------------
+Version: 0.4.0
+Date: 2026-10-29
+  Features:
+    - Tier 3, pressurized-water nuclear power (docs/NUCLEAR.md): reactor core, primary circulation unit, nuclear steam
+      generator, high-pressure turbine train (native fusion-generator, 45 MW), surface condenser, cooling tower, dry
+      cooler, spent-fuel cooling pool, dry-cask storage; optional reprocessing plant and waste vitrifier. Fuel
+      assemblies, spent-fuel items, plutonium-bearing material, residue, glass frit, vitrified waste canisters.
+    - Control rods are driven by circuit signals (Control-rod withdrawal 0-100 %, Reactor SCRAM). Unwired cores SCRAM by
+      themselves. Rods move at limited speed, decay heat keeps heating a shut-down core, and a core that makes more heat
+      than the steam side removes explodes (standard vanilla reactor explosion). New script scripts/reactors.lua and
+      command /ipp-reactor-debug.
+    - Two researches: Pressurized-water nuclear power, Nuclear reprocessing. The vanilla Nuclear power research no longer
+      unlocks the vanilla reactor, heat exchanger or steam turbine (config replace_vanilla_nuclear).
+  Changes:
+    - New components: nuclear shielding, control-rod assembly, radiation-hardened controller, reinforced pipe, fuel cladding,
+      chemical-resistant pipe, heating element. Recipe products may now carry a probability (helper U.stacks).
+    - Exhaust stack refuses the new Tier 3 fluids.
+  Minor:
+    - dev-tests: test_data.py covers the Tier 3 prototypes and energy chain; new test_reactors.py simulates the control script.
+---------------------------------------------------------------------------------------------------
 Version: 0.3.4
 Date: 2026-10-24
   Bugfixes:

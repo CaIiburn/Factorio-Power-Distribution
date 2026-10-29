@@ -1,0 +1,9 @@
+{
+  "name": "industrial-power-plants",
+  "version": "0.4.1",
+  "title": "Industrial Power Plants",
+  "author": "Claude",
+  "factorio_version": "2.1",
+  "description": "Industrial combined-cycle gas power stations (fuel-gas conditioner, gas turbine, heat-recovery steam generator, large steam turbine) and a pressurized-water nuclear plant with circuit-controlled control rods, built on native fusion-generator turbines (fluid in, electricity and fluid out). Requires Space Age.",
+  "dependencies": ["base >= 2.1.0", "space-age >= 2.1.0"]
+}

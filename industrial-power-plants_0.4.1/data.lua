@@ -1,4 +1,5 @@
 require("prototypes.core")
 require("prototypes.components")
 require("prototypes.machines")
+require("prototypes.nuclear")
 require("prototypes.technologies")

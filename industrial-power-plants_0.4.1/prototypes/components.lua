@@ -15,6 +15,14 @@ local list = {
   { "ipp-seal-pack",              "plastic-bar",         {0.70,0.70,0.75}, 4, { {"item","plastic-bar",10}, {"item","steel-plate",2}, {"fluid","lubricant",10} }, 1, {"crafting-with-fluid"} },
   { "ipp-control-cabinet",        "advanced-circuit",    {0.80,0.90,0.80}, 6, { {"item","electronic-circuit",10}, {"item","advanced-circuit",5}, {"item","copper-cable",20} } },
   { "ipp-high-speed-rotor",       "engine-unit",         {0.90,0.75,0.75}, 6, { {"item","ipp-turbine-rotor",1}, {"item","ipp-heat-resistant-alloy",4}, {"item","electronic-circuit",5} } },
+  -- Tier 3 (nuclear). Researched with Pressurized-water nuclear power, except the two marked (reprocessing).
+  { "ipp-nuclear-shielding",      "concrete",            {0.65,0.70,0.75}, 6, { {"item","concrete",10}, {"item","steel-plate",10}, {"item","ipp-heat-resistant-alloy",2} } },
+  { "ipp-control-rod-assembly",   "steel-plate",         {0.60,0.75,1.00}, 8, { {"item","steel-plate",6}, {"item","ipp-heat-resistant-alloy",6}, {"item","electronic-circuit",4} } },
+  { "ipp-radhard-controller",     "advanced-circuit",    {0.95,0.85,0.55}, 10, { {"item","ipp-control-cabinet",1}, {"item","advanced-circuit",10}, {"item","ipp-nuclear-shielding",1} } },
+  { "ipp-reinforced-pipe",        "pipe",                {0.80,0.85,1.00}, 4, { {"item","pipe",10}, {"item","steel-plate",4}, {"item","ipp-heat-resistant-alloy",2} } },
+  { "ipp-fuel-cladding",          "steel-plate",         {0.90,0.90,0.70}, 4, { {"item","steel-plate",2}, {"item","ipp-heat-resistant-alloy",2} } },
+  { "ipp-chemical-resistant-pipe","pipe",                {0.70,1.00,0.70}, 4, { {"item","pipe",10}, {"item","plastic-bar",6}, {"item","steel-plate",2} } },
+  { "ipp-heating-element",        "copper-cable",        {1.00,0.60,0.40}, 4, { {"item","copper-cable",20}, {"item","ipp-heat-resistant-alloy",2}, {"item","stone-brick",4} } },
 }
 
 for i, c in ipairs(list) do

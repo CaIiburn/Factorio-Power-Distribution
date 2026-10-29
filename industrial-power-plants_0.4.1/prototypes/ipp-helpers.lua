@@ -107,11 +107,11 @@ function U.icons_of_fluid(name, tint) return U.icons_of(data.raw.fluid[name], ti
 function U.tech_icons(name, tint)     return U.icons_of(data.raw.technology[name], tint, 256) end
 function U.color(r, g, b) return { r = r, g = g, b = b } end
 
--- Shorthand {"item"|"fluid", name, amount[, temperature]} -> Ingredient/Product prototypes.
+-- Shorthand {"item"|"fluid", name, amount[, temperature[, independent_probability]]} -> Ingredient/Product prototypes.
 function U.stacks(list)
   local out = {}
   for _, e in ipairs(list) do
-    out[#out + 1] = { type = e[1], name = e[2], amount = e[3], temperature = e[4] }
+    out[#out + 1] = { type = e[1], name = e[2], amount = e[3], temperature = e[4], independent_probability = e[5] }
   end
   return out
 end

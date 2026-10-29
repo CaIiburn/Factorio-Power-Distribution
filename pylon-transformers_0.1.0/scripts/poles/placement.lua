@@ -86,15 +86,39 @@ function P.reject(entity, ctx, message)
   local item_name = place and (place.name or place.item)
   local quality = entity.quality and entity.quality.name
 
-  local done = false
+  -- entity.mine{} only accepts script inventories / entity-owned inventories,
+  -- so mine into a temporary one and hand the contents over afterwards.
+  local player
   if ctx.player_index then
-    local player = game.get_player(ctx.player_index)
-    if player and player.valid then
-      local inv = player.get_main_inventory()
-      if inv then done = entity.mine{ inventory = inv } end
+    local p = game.get_player(ctx.player_index)
+    if p and p.valid then player = p end
+  end
+
+  local mined = false
+  local tmp = game.create_inventory(32)
+  mined = entity.mine{ inventory = tmp } and true or false
+
+  if mined then
+    for i = 1, #tmp do
+      local stack = tmp[i]
+      if stack.valid_for_read then
+        local name, count = stack.name, stack.count
+        local q = stack.quality and stack.quality.name
+        local inserted = player and player.insert(stack) or 0
+        if inserted < count then
+          surface.spill_item_stack{
+            position = pos,
+            stack = { name = name, count = count - inserted, quality = q },
+            enable_looted = true,
+          }
+        end
+      end
     end
   end
-  if not done and entity.valid then
+  tmp.destroy()
+
+  -- Mining failed: fall back to spilling the item and deleting the entity.
+  if not mined and entity.valid then
     if item_name then
       surface.spill_item_stack{
         position = pos, stack = { name = item_name, count = 1, quality = quality },
