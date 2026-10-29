@@ -1,5 +1,5 @@
 -- technologies.lua
--- One tech per tier, unlocks BOTH step-up and step-down, ALL THREE sizes.
+-- One tech per tier, unlocks the transformer of that tier (step-up / step-down and the size are chosen in the GUI).
 
 local technologies = {}
 
@@ -31,14 +31,7 @@ function technologies.generate(C)
     local tech_name = "pt-transformer-t" .. tier
 
     local unlocks = {}
-    for _, kind in ipairs(C.kinds) do
-      for _, size in ipairs(C.sizes) do
-        table.insert(unlocks, {
-          type = "unlock-recipe",
-          recipe = C.shell_name(kind, tier, size),
-        })
-      end
-    end
+    table.insert(unlocks, { type = "unlock-recipe", recipe = C.item_name(tier) })
 
     -- The radiator comes with the first tier that has heat.
     if tier == first_heat_tier then

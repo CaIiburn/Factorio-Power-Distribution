@@ -23,17 +23,36 @@ C.half_box = 0.1
 --     is 15 (large distribution, tier 6), so 16 lets every pole tier connect,
 --   * the ports never wire themselves to anything when they are created (auto_connect_up_to_n_wires
 --     is 0), so the two ports of one transformer start out unconnected,
---   * the selection box is a small square around the port, drawn above the shell's own.
+--   * the selection box covers the end of the shell where the port sits (see port_select_depth),
+--     drawn above the shell's own.
+--   * a pole prototype has one set of wire attachment points and no rotating selection box, so a
+--     port exists once for each of the four directions of the shell ("pc-port-pylon-out-east"), with
+--     the wire points on that end's bushing of the sprite (prototypes/ports.lua, sprites.lua) and the
+--     selection box on that end. The transformer script creates the one of its direction.
 C.port_supply = 0.15   -- supply_area_distance
 C.port_reach = 16      -- maximum_wire_distance
-C.port_select = 0.3    -- half size of the selection box
+C.port_select = 0.3    -- half size of the selection box of the older, direction-less ports
+C.port_select_depth = 1.0  -- how far the selection box reaches in from the end of the shell, in tiles
+                           -- (2 = the whole half, like the Electric Grid transformer; then the
+                           -- shell itself can only be selected through the port boxes' priority)
 C.port_priority = 80   -- selection priority, above the shell (50)
 
--- Port prototype name of each end of a transformer kind.
+-- Port prototype name of each end of a transformer kind. These are the base names; the prototype
+-- that stands in a transformer has the direction added, see C.port_name().
 C.ports = {
   up   = { input = "pc-port-feeder-in",  output = "pc-port-pylon-out" },
   down = { input = "pc-port-pylon-in",   output = "pc-port-distribution-out" },
 }
+
+-- The four directions of a shell, as the numbers of defines.direction (the data stage has
+-- no need for the defines table here) and their names.
+C.directions = { "north", "east", "south", "west" }
+C.direction_name = { [0] = "north", [4] = "east", [8] = "south", [12] = "west" }
+
+-- Name of the port prototype for a shell facing `direction` (a number of defines.direction).
+function C.port_name(base, direction)
+  return base .. "-" .. (C.direction_name[direction] or "north")
+end
 
 -- Half extents of the area a transformer occupies, long axis first (the halves stick out a little
 -- past the shell's collision box). Used for the "not inside a pole's supply area" rule.
@@ -69,6 +88,16 @@ C.control = {
 local e6 = 1000000
 
 C.sizes = {"small", "medium", "large"}
+
+-- The player sees ONE item per tier, "Transformer (T3)". It places the shell of kind `item_kind`
+-- and size `item_size`, and kind and size are then chosen in the GUI of the placed transformer
+-- (scripts/transformer/gui.lua), which swaps the shell for the chosen one. The item costs what the
+-- `recipe_size` transformer costs (recipes.lua), whatever is chosen afterwards. The items of the
+-- other kind and sizes stay as hidden legacy items, so saves that hold them keep them (and they can
+-- still be placed).
+C.item_kind = "up"
+C.item_size = "small"
+C.recipe_size = "medium"
 
 ---------------------------------------------------------------------------------------------------
 -- Circuit network output
@@ -263,6 +292,11 @@ function C.shell_name(kind, tier, size)
   return "pt-" .. kind .. "-" .. size .. "-t" .. tier
 end
 
+-- The item the player crafts, carries and places (and what a transformer of any size gives back).
+function C.item_name(tier)
+  return C.shell_name(C.item_kind, tier, C.item_size)
+end
+
 function C.in_name(kind, tier, size)
   return C.shell_name(kind, tier, size) .. "-in"
 end
@@ -308,7 +342,7 @@ P.FAMILIES = {
     reach = { 16, 20, 24, 28, 32, 36 },
   },
   {
-    id = "pylon", class = "pylon", size = 1, base = "medium-electric-pole",
+    id = "pylon", class = "pylon", size = 2, base = "medium-electric-pole",
     color = { 0.55, 0.75, 1.0 }, stack = 50, order = "b",
     area = nil,
     reach = { 40, 45, 50, 55, 60, 64 },
@@ -335,7 +369,8 @@ P.FAMILIES = {
 
 -- Pylons "have no supply area". The engine may or may not accept 0, so the
 -- smallest value that cannot cover any other entity is used: half a tile
--- covers exactly the pylon's own tile. Set to 0 if your build accepts it.
+-- gives a 1x1 area in the middle of the pylon's own 2x2 footprint. Set to 0 if
+-- your build accepts it.
 P.PYLON_SUPPLY_DISTANCE = 0.5
 
 -- Hidden "port" poles that live inside transformers (see C.ports). One per (class, role).
@@ -343,12 +378,27 @@ P.PYLON_SUPPLY_DISTANCE = 0.5
 -- role "out" = the transformer injects power into the network
 -- step-up   transformer: feeder-in  + pylon-out
 -- step-down transformer: pylon-in   + distribution-out
-P.PORTS = {
-  { name = C.ports.up.input,    class = "feeder",       role = "in"  },
-  { name = C.ports.up.output,   class = "pylon",        role = "out" },
-  { name = C.ports.down.input,  class = "pylon",        role = "in"  },
-  { name = C.ports.down.output, class = "distribution", role = "out" },
+--
+-- Every port exists four times, once per direction of the shell (`direction`, `base` = the name
+-- without it). The ports without a direction (`legacy`) are the ones of earlier versions: they stay
+-- as prototypes so that a save that has them keeps them until the transformer script has replaced
+-- them (registry.lua).
+local PORT_BASES = {
+  { base = C.ports.up.input,    class = "feeder",       role = "in",  kind = "up"   },
+  { base = C.ports.up.output,   class = "pylon",        role = "out", kind = "up"   },
+  { base = C.ports.down.input,  class = "pylon",        role = "in",  kind = "down" },
+  { base = C.ports.down.output, class = "distribution", role = "out", kind = "down" },
 }
+P.PORTS = {}
+for _, b in ipairs(PORT_BASES) do
+  P.PORTS[#P.PORTS + 1] = { name = b.base, base = b.base, class = b.class, role = b.role, kind = b.kind, legacy = true }
+end
+for _, b in ipairs(PORT_BASES) do
+  for _, direction in ipairs(C.directions) do
+    P.PORTS[#P.PORTS + 1] = { name = b.base .. "-" .. direction, base = b.base, class = b.class,
+                              role = b.role, kind = b.kind, direction = direction }
+  end
+end
 P.PORT_NAMES = {}
 for _, port in ipairs(P.PORTS) do P.PORT_NAMES[#P.PORT_NAMES + 1] = port.name end
 P.PORT_SUPPLY_DISTANCE = C.port_supply

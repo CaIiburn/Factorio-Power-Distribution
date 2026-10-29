@@ -30,10 +30,11 @@ end
 local Circuit = {}
 
 -- Removes every signal section (e.g. ones pasted from a blueprint) and forgets what was written,
--- so the next publish writes a correct state. Also locks the GUI: the script owns the signals.
+-- so the next publish writes a correct state. The script owns the signals, and opening the shell
+-- shows the size picker (gui.lua) instead of the combinator's own GUI.
 function Circuit.init(rec)
   local shell = rec.shell
-  shell.operable = false
+  shell.operable = true
   local cb = shell.get_control_behavior()
   if cb then
     for i = cb.sections_count, 1, -1 do cb.remove_section(i) end

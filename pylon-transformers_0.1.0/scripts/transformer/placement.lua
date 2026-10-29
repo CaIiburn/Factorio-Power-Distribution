@@ -10,6 +10,8 @@ local Helpers = require("__pylon-transformers__.scripts.transformer.helpers")
 local Circuit = require("__pylon-transformers__.scripts.transformer.circuit")
 local Registry = require("__pylon-transformers__.scripts.transformer.registry")
 local PortWires = require("__pylon-transformers__.scripts.transformer.port_wires")
+local Resize = require("__pylon-transformers__.scripts.transformer.resize")
+local Upgrades = require("__pylon-transformers__.scripts.transformer.upgrades")
 
 local shells, hidden_names = Common.shells, Common.hidden_names
 local find_covering_pole = Supply.find_covering_pole
@@ -29,7 +31,8 @@ end
 local function reject_build(entity, event)
   local surface, pos, force = entity.surface, entity.position, entity.force
   local is_ghost = entity.type == "entity-ghost"
-  local item = is_ghost and entity.ghost_name or entity.name
+  local shell_info = shells[is_ghost and entity.ghost_name or entity.name]
+  local item = Common.C.item_name(shell_info.tier)   -- every kind and size comes from the one item
   local quality = entity.quality.name
   local player = event.player_index and game.get_player(event.player_index) or nil
 
@@ -86,18 +89,43 @@ local function on_built(event, source)
   -- from says (event.tags), or to the poles that are already there.
   local rec = storage.transformers[entity.unit_number]
   if rec then
-    PortWires.on_transformer_built(rec, event.tags,
-      { player_index = event.player_index, force = entity.force, source = source })
+    local ctx = { player_index = event.player_index, force = entity.force, source = source }
+
+    -- Built by an upgrade or a fast replace: it is the small step-up transformer of its tier, give
+    -- it the kind and size of the one it replaced. This comes first, so the ports that are wired
+    -- below are the final ones.
+    local size, kind = Upgrades.take(entity, event)
+    if (size and size ~= rec.info.size) or (kind and kind ~= rec.info.kind) then
+      Resize.apply(rec, { size = size, kind = kind }, { force = ctx.force, no_wire = true })
+    end
+
+    PortWires.on_transformer_built(rec, event.tags, ctx)
   end
 end
 
--- Settings pasted onto a transformer would overwrite its signals: wipe them and rewrite.
+-- Settings pasted onto a transformer (Shift + right click copies, Shift + left click pastes, like
+-- the recipe of an assembling machine). The signals that the engine pasted are wiped and written
+-- again. If the source is a transformer too, its size and kind are pasted: the destination becomes
+-- that size and kind (and keeps its tier). A pasted kind replaces the ports, which start wired
+-- like those of a newly placed transformer.
 local function on_entity_settings_pasted(event)
   local entity = event.destination
   if not (entity and entity.valid and shells[entity.name]) then return end
 
   local rec = storage.transformers[entity.unit_number]
-  if rec then Circuit.init(rec) end
+  if not rec then return end
+  Circuit.init(rec)
+
+  local source = event.source
+  local from = source and source.valid and shells[source.name]
+  if not from or (from.size == rec.info.size and from.kind == rec.info.kind) then return end
+
+  local shell = Resize.apply(rec, { size = from.size, kind = from.kind },
+    { player_index = event.player_index, force = entity.force, source = "player" })
+  local player = event.player_index and game.get_player(event.player_index)
+  if shell and player then
+    player.create_local_flying_text{ text = { "pt-gui.changed", shell.localised_name }, position = shell.position }
+  end
 end
 
 -- A player rotated a placed transformer (R / Shift+R): move the helpers to the ends that match the

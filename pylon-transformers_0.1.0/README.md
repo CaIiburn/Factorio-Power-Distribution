@@ -13,7 +13,7 @@ Five classes, six tiers each (30 poles):
 | Class | Poles | Footprint | Supply area (tier 1 -> 6) | Wire reach (tier 1 -> 6) |
 |---|---|---|---|---|
 | Feeder | `pc-feeder-N` | 2x2 | 6 -> 16 | 16 -> 36 |
-| Pylon | `pc-pylon-N` | 1x1 | none | 40 -> 64 |
+| Pylon | `pc-pylon-N` | 2x2 | none | 40 -> 64 |
 | Distribution (large) | `pc-distribution-large-N` | 2x2 | 10 -> 30 | = area |
 | Distribution (small) | `pc-distribution-small-N` | 1x1 | 5 -> 15 | = area + 2 |
 | Auxiliary | `pc-aux-N` | 1x1 | 3 -> 7 | 6 -> 16 |
@@ -42,15 +42,23 @@ Max wires per pole: feeder 6, pylon 4, distribution 6, aux 6.
 
 ## Transformers
 
-Two kinds, **step-up** and **step-down**, each in 3 sizes (small, medium, large) and 6 tiers. Capacity doubles per size step and grows x5 per tier, from 625 kW (small, tier 1) to 7.8125 GW (large, tier 6). One technology per tier (`pt-transformer-t1...6`) unlocks every kind and size of that tier.
+Two kinds, **step-up** and **step-down**, each in 3 sizes (small, medium, large) and 6 tiers. Capacity doubles per size step and grows x5 per tier, from 625 kW (small, tier 1) to 7.8125 GW (large, tier 6). One technology per tier (`pt-transformer-t1...6`) unlocks the transformer of that tier.
+
+**One item per tier, kind and size are chosen in a GUI.** The player sees only `Transformer (T3)` (one item and one recipe per tier; internally the small step-up transformer, `C.item_kind` / `C.item_size`). Place one, then open it (E or click) to get a small window with the **type** (step-up / step-down) and the three **sizes** (maximum output, idle loss and full load loss of each) and pick with the radio buttons. The transformer is swapped for that variant on the spot: same place, direction, health and circuit wires; the energy in the buffers and the temperature are kept (cut to the new buffer size if that is smaller). A size change keeps the ports and their copper wires. A change of type replaces the ports (they are poles of other classes, feeder/pylon becomes pylon/distribution), so their wires are gone and the new ports are wired like those of a newly placed transformer, to the poles of their class that are in reach. A newly placed transformer is a small one of the item's kind.
+
+**Copy and paste, like the recipe of an assembling machine.** Shift + right click on a transformer copies its type and size, Shift + left click on another transformer (of any tier) makes it that type and size and keeps its tier. Pasting a different type replaces the ports as above. The item costs what the **medium** transformer costs (`C.recipe_size` in `config.lua`), whatever size is chosen, so size is a free trade-off between idle loss and efficiency at load. Pipette, blueprints, ghosts and robots work with the one item and keep the chosen size (a blueprint stores the size in the entity name).
+
+**Upgrade planner and fast replace keep kind and size.** Only the item of the small step-up transformer can place a transformer, so the upgrade planner can only build that one of the next tier: every shell's `next_upgrade` is it, and all kinds and sizes are one fast replace group (`pt-transformer`). `scripts/transformer/upgrades.lua` gives the new transformer the kind and size of the old one: the upgrade planner marks the old shell, which is when its kind and size are remembered (until a transformer is built at that spot or the order is cancelled), and for fast replace by hand the shell under the cursor is looked at just before the build. The ports are new, as always when a transformer is replaced, and are autowired (for the final kind). Mining any size gives the one item back.
+
+The three sizes are still three prototypes each (`pt-up-small-t3`, `pt-up-medium-t3`, `pt-up-large-t3`; they have the same 2x4 footprint). The items of the medium and large sizes are kept as hidden legacy items so that saves holding them keep them; they cannot be crafted any more.
 
 | Kind | Input end | Output end |
 |---|---|---|
 | Step-up | feeder pole | pylon |
 | Step-down | pylon | distribution pole (large or small) |
 
-* **One entity each.** A transformer is a single 2x4 building (4x2 when turned sideways). It can be blueprinted and upgraded with the upgrade planner or fast replace, which advances the tier and keeps the size and the direction.
-* **Ports.** Each end has a hidden pole, its *port*, of the matching class: `pc-port-feeder-in`, `pc-port-pylon-out`, `pc-port-pylon-in`, `pc-port-distribution-out`. Poles of that class wire to the port like to any other pole (by hand, or automatically). Wires from any other class are cut. Ports reach 16 tiles, enough for every pole tier to connect from outside its own supply area. See [Port wiring](#port-wiring).
+* **One entity each.** A transformer is a single 2x4 building (4x2 when turned sideways). It can be blueprinted and upgraded with the upgrade planner or fast replace, which advances the tier and keeps the size and the direction (the size is kept, see below).
+* **Ports.** Each end has a hidden pole, its *port*, of the matching class: `pc-port-feeder-in`, `pc-port-pylon-out`, `pc-port-pylon-in`, `pc-port-distribution-out`. Poles of that class wire to the port like to any other pole (by hand, or automatically). Wires from any other class are cut. Ports reach 16 tiles, enough for every pole tier to connect from outside its own supply area. There is one port prototype per end **and per direction** (`pc-port-pylon-out-east` and so on; the four names without a direction are kept only so old saves and mods still find them): each has the wire attachment points of the bushing that the sprite shows at that end for that direction (copper, red and green, plus the shadow ones; measured on the sprite, see `Sprites.attach` in `sprites.lua`), and a selection box over the end of the shell, so the wire ends on the bushing and a wire can be dragged to the end of the transformer. See [Port wiring](#port-wiring) and [Port selection boxes](#port-selection-boxes).
 * **Not inside a pole's supply area.** A transformer cannot be built, ghosted or rotated into the supply area of **any** electric pole (all pole classes, hidden vanilla poles and poles of other mods; pole ghosts count). The other way round, a pole of this mod cannot be placed with a supply area that touches a transformer. While a transformer is held, the supply areas of nearby poles are drawn.
 * **Rotation.** The input is one end of the building, the output the other end. See [Rotation](#rotation).
 * **Tooltip** shows the max output, the idle loss and the full load loss (total), each loss as power and as a percentage of the rated output, e.g. `Idle loss: 351.6 kW (1.12 %)` (and, for heat tiers, the load up to which passive cooling is enough, the explosion temperature and the number of radiators needed at full load).
@@ -64,6 +72,10 @@ Two kinds, **step-up** and **step-down**, each in 3 sizes (small, medium, large)
 * **Robots build in any order.** When a transformer is built before one of its poles, the wire is remembered and made as soon as a pole of that class is built at that spot. A pole that gets such a wire counts as already wired and is not autowired.
 * **Destroyed transformers.** When a transformer dies (shot, or exploded by overheating) and the force builds ghosts of dead entities, the port wires go onto the ghost the same way. Robots rebuild the transformer with its wires.
 * **Tags decide.** A port with wires in its tag is wired only as the tag says. A port with none (or no tag, for example a transformer from an old blueprint or one placed by hand) is autowired.
+
+### Port selection boxes
+
+The port of an end is selectable over that end of the shell: as wide as the shell (2 tiles) and `C.port_select_depth` (default 1) tiles deep, measured from the end. The ports have `selection_priority = C.port_priority` (80), above the shell, so hovering the end with a wire in hand, or with the wire tool, picks the port. The shell stays selectable in the middle (the 2 tiles between the two end boxes) for the GUI, mining and copy / paste. The depth is a trade-off: the full half (2 tiles) would leave nothing of the shell to click on while the port priority is above it; if the ports turn out to be hard to hit, raise `C.port_select_depth` slightly, if the shell is hard to hit, lower it. Ports of old saves (without a direction in the name) are replaced by the right ones when the save loads (`FLOW_VERSION` migration in `registry.lua`, via `Helpers.rebuild`), keeping energy and temperature; their wires are restored by the autowiring. Rotating a transformer and changing its type replace the ports by those of the new direction.
 
 ### Rotation
 
@@ -222,6 +234,10 @@ The data stage and the runtime load were exercised against a stubbed Factorio AP
 21. Overdraw and cut input (the failure that was found in game): with the plant's supply below the demand, does the energy delivered stay at or below what the plant supplies (minus the losses), and is the draw flat instead of a sawtooth? When the input line is cut, does the transformer stop delivering within a second or two?
 22. Constant draw: with a steady factory load, is the power graph of the input network flat (no 10-tick pulses)? Does a brownout of the input network (switch off the plants for a few seconds) slow the transformers down and recover without sticking? Does an old save (flow version 1) get its halves replaced once on load, with the energy kept?
 23. Cost: compare the mod's per-update time with 22 transformers at `pt-update-interval` 1, 10 and 60 (the earlier burst design used 0.2 ms at 1). If the update is still too expensive at 1, raise the interval: the draw does not depend on it.
+24. Size picker: does opening a placed transformer show the size window instead of the combinator GUI (also with the pipette, with E on the hovered entity and with the GUI open when it is mined or blown up)? Does choosing another size keep the circuit wires, the port wires, the direction, the output / input energy and (heat tiers) the temperature, and does the power flow carry on at the new size? Does the radiator / heat pipe connection to a heat-tier transformer survive the swap (the heat pipe is replaced)? Does a blueprint with a medium transformer build medium ones (by hand and by robots from ghosts), costing the one item? Is the old three-item crafting menu gone and does a save with old small, medium and large items load with the items still in the inventory and placeable?
+25. Upgrade planner and fast replace: does the upgrade planner upgrade a medium and a large transformer to the next tier (by robots, and instantly in the editor), and do they come out medium / large again? Does placing the item of the next tier by hand over a medium transformer do the same? Does Shift + right click / Shift + left click paste type and size between two transformers (of different tiers, and between a step-up and a step-down)? Does a paste of the other type leave the new ports wired to the poles around?
+26. Pylon: is the 2x2 tower drawn right in all four directions (sprite, shadow, wire attachment points for copper, red and green), and are its box and the placement (also next to transformer ports, by blueprint and with the wire tool) fine? Does the pylon icon show in the item, recipe and tech?
+27. Port wires and boxes: does every wire (copper, and red / green if the pole has circuit wires) end on the knob of the bushing of the transformer sprite, in all four directions, for step-up and step-down, with the wire shadows right as well? Can the end of a transformer be hovered with a wire in hand while the middle can still be clicked to open the GUI (try `C.port_select_depth` 1.0 against smaller and larger values, and `C.port_priority` 80 against a value below the shell's `selection_priority`)? Does an old save with ports without a direction get the new ports (and its wires) on load, and do rotation and the size / type swap keep the right port prototype for the new direction?
 
 ## Graphics
 
@@ -232,18 +248,20 @@ Sprites live in `graphics/entity/`. For every transformer there is a north sprit
 
 Run it again whenever the north sprites change.
 
+**The pylon** is a 2x2 lattice tower. Its sprite (`graphics/entity/pt-pylon.png`, four 148x420 frames), its shadow (`pt-pylon-shadow.png`, four 420x148 frames) and its wire points are those of the huge electric pole of the Electric Grid mod, taken from the file that was supplied for this mod (the same source as the transformer art, see `sprites.lua`). The prototype data is in `prototypes/pylon-art.lua`; the icon `graphics/icons/pt-pylon.png` is made from the sprite by `make_pylon_icon.py`. The art is dark, so the tier colour is mixed halfway towards white (`Art.tint` in `pylon-art.lua`; the tiers differ only subtly). Collision box 1.7x1.7, selection box 2x2, supply area as before (a 1x1 area inside its own footprint).
+
 ## Files
 
 - `info.json`, `settings.lua`, `data.lua`, `data-final-fixes.lua` (classifies entities, hides vanilla poles)
 - `config.lua`: transformer tiers, loss and heat model, port constants and `C.pole` (pole classes), shared by both stages
 - `recipes.lua`, `technologies.lua`, `sprites.lua`: transformer generators
-- `prototypes/`: `poles.lua`, `ports.lua`, `pole-items.lua`, `pole-technology.lua`, `wire-tool.lua`, `item-exists.lua` (pole classes), `transformers.lua` (all transformer prototypes), `radiator.lua`
+- `prototypes/`: `poles.lua`, `ports.lua` (per-direction ports, wire points, selection boxes), `pole-items.lua`, `pole-technology.lua`, `wire-tool.lua`, `item-exists.lua` (pole classes), `transformers.lua` (all transformer prototypes), `radiator.lua`
 - `control.lua`: loads the runtime modules into the event bus
 - `scripts/bus.lua`: event bus
 - `scripts/radiator.lua`: gives a built radiator its heat setting
-- `scripts/transformer/`: `common`, `supply`, `ports`, `port_wires`, `helpers`, `circuit`, `registry`, `heat`, `transfer`, `placement`, `overlay`
+- `scripts/transformer/`: `common`, `supply`, `ports`, `port_wires`, `helpers`, `circuit`, `registry`, `heat`, `transfer`, `placement`, `overlay`, `resize`, `gui`, `upgrades`
 - `scripts/poles/`: `lookup`, `state`, `graph`, `placement`, `wires`, `autowire`, `zones`, `tools`, `held`, `notify`, `events`
 - `locale/en/`: `pylon-transformers.cfg`, `pole-classes.cfg`
 - `graphics/`: icons, technology icons and entity sprites
-- `make_rotated_graphics.py`, `generate_placeholders.py`, `make_radiator_graphics.py`: graphics tools
+- `make_rotated_graphics.py`, `generate_placeholders.py`, `make_radiator_graphics.py`, `make_pylon_icon.py`: graphics tools
 - `prototype-api.json`, `runtime-api.json`: latest factorio modding apis

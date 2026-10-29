@@ -24,6 +24,7 @@ for _, kind in ipairs(C.kinds) do
     for _, size in ipairs(C.sizes) do
       local t = tier_data[size]
       local info = {
+        kind = kind, tier = tier, size = size,
         in_name = C.in_name(kind, tier, size),
         out_name = C.out_name(kind, tier, size),
         -- Port poles of the two ends: step-up feeder + pylon, step-down pylon + distribution.

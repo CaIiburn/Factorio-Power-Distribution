@@ -3,7 +3,7 @@
 --                             and wires up. control.lua writes load / power / temperature to it.
 --   2 hidden energy halves  - input (buffered consumer) and output (buffered producer)
 --   2 hidden heat pipes     - only for heat tiers (C.heat.tiers); horizontal and vertical variant
---   1 item and 1 recipe
+--   1 item (hidden for the sizes other than C.item_size) and, for C.item_size only, 1 recipe
 -- plus the virtual signals and one technology per tier.
 --
 -- The two hidden connection poles of a transformer (its ports) are shared prototypes defined in
@@ -177,8 +177,8 @@ for _, kind in ipairs(C.kinds) do
       -- It is a constant combinator because only that entity type can carry circuit wires and
       -- hold signals; control.lua owns its contents and disables the GUI (operable = false).
       --
-      -- Fast replace and upgrade planner work through fast_replaceable_group and next_upgrade,
-      -- both scoped to kind+size, so upgrading only ever advances tier, never jumps size class.
+      -- Fast replace and upgrade planner work through fast_replaceable_group and next_upgrade (see
+      -- below); the size is kept by scripts/transformer/upgrades.lua.
       --
       -- Rotation: the prototype is rotatable (no "not-rotatable" flag), so the cursor, blueprints
       -- and R on a placed entity rotate it in 90 degree steps and the collision box turns with it.
@@ -190,7 +190,9 @@ for _, kind in ipairs(C.kinds) do
         name = shell,
         icon = icon, icon_size = 128,
         flags = { "placeable-neutral", "player-creation" },
-        minable = { mining_time = 0.3, result = shell },
+        minable = { mining_time = 0.3, result = C.item_name(tier) },
+        -- Every size is built from (and gives back) the one item: pipette, blueprints and ghosts too.
+        placeable_by = { item = C.item_name(tier), count = 1 },
         max_health = 250,
         dying_explosion = existing("explosion", C.explosion_effect[size]),
         collision_box = { { -0.85, -1.85 }, { 0.85, 1.85 } },
@@ -201,8 +203,11 @@ for _, kind in ipairs(C.kinds) do
         activity_led_light_offsets = { { 0, 0 }, { 0, 0 }, { 0, 0 }, { 0, 0 } },
         circuit_wire_connection_points = wire_points(),
         circuit_wire_max_distance = 9,
-        fast_replaceable_group = "pt-" .. kind .. "-" .. size,
-        next_upgrade = (C.tiers[tier + 1] and C.shell_name(kind, tier + 1, size)) or nil,
+        -- All kinds and sizes are one fast replace group, and the upgrade planner always builds the
+        -- small step-up transformer of the next tier (the only one that has a placing item);
+        -- upgrades.lua gives it back the kind and size it had.
+        fast_replaceable_group = "pt-transformer",
+        next_upgrade = (C.tiers[tier + 1] and C.item_name(tier + 1)) or nil,
         custom_tooltip_fields = fields,
         localised_description = description,
       }
@@ -281,7 +286,10 @@ for _, kind in ipairs(C.kinds) do
         end
       end
 
-      out[#out + 1] = {
+      -- The item of C.item_kind / C.item_size is the one the player sees; the others are hidden
+      -- legacy items.
+      local visible = (kind == C.item_kind and size == C.item_size)
+      local item = {
         type = "item",
         name = shell,
         icon = icon, icon_size = 128,
@@ -291,15 +299,26 @@ for _, kind in ipairs(C.kinds) do
         place_result = shell,
         stack_size = 20,
       }
+      if visible then
+        item.localised_name = { "pt-item-name.transformer", tostring(tier) }
+        item.localised_description = { "item-description.pt-choose-size" }
+      else
+        item.hidden = true
+        item.hidden_in_factoriopedia = true
+      end
+      out[#out + 1] = item
 
-      out[#out + 1] = {
-        type = "recipe",
-        name = shell,
-        enabled = false,
-        energy_required = 5,
-        ingredients = recipes[tier][size],
-        results = { { type = "item", name = shell, amount = 1 } },
-      }
+      if visible then
+        out[#out + 1] = {
+          type = "recipe",
+          name = shell,
+          localised_name = { "pt-item-name.transformer", tostring(tier) },
+          enabled = false,
+          energy_required = 5,
+          ingredients = recipes[tier][C.recipe_size],
+          results = { { type = "item", name = shell, amount = 1 } },
+        }
+      end
     end
   end
 end

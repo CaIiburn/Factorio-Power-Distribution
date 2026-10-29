@@ -41,6 +41,9 @@
 --     transfer.lua     energy transfer and the on_tick bucket scheduler
 --     placement.lua    placement rule and the build / clone / rotate / paste events
 --     overlay.lua      supply-area overlay while a transformer is held
+--     resize.lua       swaps a transformer for another size / kind (shell, halves, heat pipe, ports)
+--     upgrades.lua     keeps the size through the upgrade planner and fast replace
+--     gui.lua          the size picker that opens with the transformer
 --   radiator.lua       gives a radiator (a heat interface) its setting when it is built
 --   poles/
 --     lookup.lua       static tables: classes, ports, restricted entities
@@ -68,9 +71,11 @@ local Bus = require("__pylon-transformers__.scripts.bus")
 Bus.add_libraries{
   require("__pylon-transformers__.scripts.transformer.registry"),
   require("__pylon-transformers__.scripts.transformer.placement"),
+  require("__pylon-transformers__.scripts.transformer.upgrades"),
   require("__pylon-transformers__.scripts.transformer.heat"),
   require("__pylon-transformers__.scripts.transformer.transfer"),
   require("__pylon-transformers__.scripts.transformer.overlay"),
+  require("__pylon-transformers__.scripts.transformer.gui"),
   require("__pylon-transformers__.scripts.radiator"),
   require("__pylon-transformers__.scripts.transformer.port_wires").library,
   require("__pylon-transformers__.scripts.poles.events"),

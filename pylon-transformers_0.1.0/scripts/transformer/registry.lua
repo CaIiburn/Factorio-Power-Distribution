@@ -18,7 +18,7 @@ local Common = require("__pylon-transformers__.scripts.transformer.common")
 local Helpers = require("__pylon-transformers__.scripts.transformer.helpers")
 local Circuit = require("__pylon-transformers__.scripts.transformer.circuit")
 
-local N, shells = Common.N, Common.shells
+local C, N, shells = Common.C, Common.N, Common.shells
 
 -- Bump when the layout of storage.transformers records changes incompatibly.
 local STORAGE_VERSION = 2
@@ -138,7 +138,10 @@ local function init_storage()
   -- the current table (the info of a shell that is gone stays; on_tick removes that record).
   for _, rec in pairs(storage.transformers) do
     local shell = rec.shell
-    if shell and shell.valid then rec.info = shells[shell.name] or rec.info end
+    if shell and shell.valid then
+      rec.info = shells[shell.name] or rec.info
+      shell.operable = true   -- older versions locked it, the GUI is the size picker now
+    end
   end
 
   if storage.flow_version ~= FLOW_VERSION then
@@ -154,6 +157,22 @@ local function init_storage()
       end
     end
     storage.flow_version = FLOW_VERSION
+  end
+
+  -- The ports are one prototype per direction of the shell (config.lua, C.port_name). Ports of
+  -- older versions have no direction in their name: rebuild those transformers, which makes the
+  -- right ports and puts the wires of the old ones on them.
+  for _, rec in pairs(storage.transformers) do
+    local shell = rec.shell
+    if shell and shell.valid then
+      local info = rec.info
+      local want_in, want_out = C.port_name(info.in_port, shell.direction), C.port_name(info.out_port, shell.direction)
+      local port_in, port_out = rec.in_pole, rec.out_pole
+      if (port_in and port_in.valid and port_in.name ~= want_in)
+         or (port_out and port_out.valid and port_out.name ~= want_out) then
+        Helpers.rebuild(rec)
+      end
+    end
   end
 end
 

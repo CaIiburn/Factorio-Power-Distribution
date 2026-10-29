@@ -1,5 +1,6 @@
 local shared = require("__pylon-transformers__.config").pole
 local util = require("util")
+local PylonArt = require("__pylon-transformers__.prototypes.pylon-art")
 
 local M = {}
 
@@ -24,7 +25,12 @@ local function tint_sprites(node, tint)
   end
 end
 
-local function tinted_icons(item, tint)
+-- The icons of a pole family's item and entity, tinted. The pylon has an icon of its own (its
+-- sprite); the others take the icon of the vanilla pole they are based on.
+local function tinted_icons(item, tint, family)
+  if family == "pylon" then
+    return { { icon = PylonArt.icon, icon_size = PylonArt.icon_size, tint = PylonArt.tint(tint) } }
+  end
   local icons
   if item and item.icons then
     icons = util.table.deepcopy(item.icons)
@@ -77,9 +83,19 @@ for _, def in ipairs(shared.POLES) do
   ent.auto_connect_up_to_n_wires = 0
   ent.rewire_neighbours_when_destroying = false
   ent.track_coverage_during_drag_building = false
-  ent.icon, ent.icon_size, ent.icons = nil, nil, tinted_icons(base_item or base, tint)
+  ent.icon, ent.icon_size, ent.icons = nil, nil, tinted_icons(base_item or base, tint, def.family)
   ent.custom_tooltip_fields = tooltip_fields(def)
   ent.hidden = nil
+  if def.family == "pylon" then
+    -- 2x2 tower with its own sprite, shadow and wire points.
+    ent.collision_box = util.table.deepcopy(PylonArt.collision_box)
+    ent.selection_box = util.table.deepcopy(PylonArt.selection_box)
+    ent.drawing_box_vertical_extension = PylonArt.drawing_box_vertical_extension
+    ent.pictures = util.table.deepcopy(PylonArt.pictures)
+    ent.connection_points = util.table.deepcopy(PylonArt.connection_points)
+    ent.water_reflection = util.table.deepcopy(PylonArt.water_reflection)
+    tint = PylonArt.tint(tint)
+  end
   tint_sprites(ent.pictures, tint)
   poles[#poles + 1] = ent
 end

@@ -31,7 +31,7 @@ for _, def in ipairs(shared.POLES) do
     name = def.name,
     localised_name = { "pc.pole-name", { "pc.family-" .. def.family }, tostring(def.tier) },
     localised_description = { "pc.desc-" .. def.class },
-    icons = poles.tinted_icons(base_item, tint),
+    icons = poles.tinted_icons(base_item, tint, def.family),
     subgroup = "energy-pipe-distribution",
     order = string.format("z[pole-classes]-%s%d", fam.order, def.tier),
     place_result = def.name,

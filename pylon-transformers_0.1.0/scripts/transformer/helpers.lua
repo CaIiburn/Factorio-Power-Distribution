@@ -71,12 +71,12 @@ local HELPERS = {
   -- is registered with the pole logic (cleanup of its wire record, no wires yet).
   {
     key = "in_pole",
-    create = function(shell, info) return create_at_end(shell, info.in_port, -1) end,
+    create = function(shell, info) return create_at_end(shell, C.port_name(info.in_port, shell.direction), -1) end,
     init = function(_, port) Ports.register(port) end,
   },
   {
     key = "out_pole",
-    create = function(shell, info) return create_at_end(shell, info.out_port, 1) end,
+    create = function(shell, info) return create_at_end(shell, C.port_name(info.out_port, shell.direction), 1) end,
     init = function(_, port) Ports.register(port) end,
   },
   {
@@ -128,6 +128,42 @@ function Helpers.reset_rates(rec)
     output.power_production = 0
     rec.out_prev = output.energy
   end
+end
+
+-- The transformer became another size and / or kind (resize.lua): `rec.shell` is already the new
+-- shell and `info` that of the new variant. The halves and the heat pipe are different prototypes
+-- for each size and kind, so they are replaced (keeping the energy and the temperature, so nothing
+-- is created or destroyed). The ports do not depend on the size and stay with their wires; another
+-- kind has ports of other pole classes, so they are replaced too and start without wires.
+function Helpers.change_variant(rec, info)
+  local input, output, heat = rec.input, rec.output, rec.heat
+  local in_energy = (input and input.valid) and input.energy or nil
+  local out_energy = (output and output.valid) and output.energy or nil
+  local temperature = (heat and heat.valid) and heat.temperature or nil
+
+  local keys = { "input", "output", "heat" }
+  if info.kind ~= rec.info.kind then
+    keys[#keys + 1] = "in_pole"
+    keys[#keys + 1] = "out_pole"
+  end
+  for _, key in ipairs(keys) do
+    local entity = rec[key]
+    if entity and entity.valid then entity.destroy() end
+    rec[key] = nil
+  end
+  rec.info = info
+
+  if not Helpers.ensure(rec) then return false end
+
+  if in_energy and rec.input then
+    rec.input.energy = math.min(in_energy, rec.input.electric_buffer_size)
+  end
+  if out_energy and rec.output then
+    rec.output.energy = math.min(out_energy, rec.output.electric_buffer_size)
+    rec.out_prev = rec.output.energy
+  end
+  if temperature and rec.heat then rec.heat.temperature = temperature end
+  return true
 end
 
 -- Destroys every helper of the record and forgets it.

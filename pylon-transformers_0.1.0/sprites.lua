@@ -46,6 +46,34 @@ local function frame_shift(f)
   return { (FW / 2 - d.cx) / 64, (d.target - (d.bottom - FH / 2)) / 64 }
 end
 
+-- Where the wires attach: the top of the knob of each bushing, in hi-res px inside the frame
+-- (measured on the body sheet). Wide frames have a bushing on the left and one on the right, tall
+-- frames one at the top (far end) and one at the bottom (near end).
+local ATTACH = {
+  [0] = { left = { 50, 117 },  right  = { 218, 95 } },
+  [1] = { top  = { 65, 13 },   bottom = { 68, 126 } },
+  [2] = { left = { 43, 93 },   right  = { 217, 122 } },
+  [3] = { top  = { 69, 40 },   bottom = { 68, 108 } },
+}
+-- Which bushing is the output end of a shell facing `dir` (the output end is where it faces), and
+-- which one the input end.
+local END_OF = {
+  east  = { out = "right",  ["in"] = "left"   },
+  west  = { out = "left",   ["in"] = "right"  },
+  north = { out = "top",    ["in"] = "bottom" },
+  south = { out = "bottom", ["in"] = "top"    },
+}
+
+-- Wire attachment point of the `role` ("in" / "out") end of a transformer of `kind` facing `dir`
+-- ("north" / "east" / "south" / "west"), in tiles from the centre of the shell, on the sprite that
+-- is drawn for that kind and direction.
+function M.attach(kind, dir, role)
+  local f = FRAME_OF[kind][dir]
+  local p = ATTACH[f][END_OF[dir][role]]
+  local shift = frame_shift(f)
+  return { shift[1] + (p[1] - FW / 2) / 64, shift[2] + (p[2] - FH / 2) / 64 }
+end
+
 -- Tier tints (additive on the mask). Same colours as the original mod, wraps if there are more tiers.
 local TIER_TINTS = {
   { r = 1.0, g = 0.0,  b = 0.0 },  -- red
