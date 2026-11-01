@@ -54,9 +54,11 @@ The conditioner (compressor train, 4 MW) needs grid power, so a dead grid cannot
 | Fuel assembly | 5 uranium fuel cells x 8 GJ = 40 GJ (333 s at 120 MW) |
 | Core heat | 120 MW x (1 + neighbour bonus) x rod withdrawal |
 | Primary circulation unit | 400 primary water/s x 300 kJ (1 kJ per unit per degC, 15 to 315 degC) = 120 MW |
-| Nuclear steam generator | 400 hot primary + 500 water -> 500 high-pressure steam (90 kJ) + 400 cool primary = 45 MW of steam energy |
+| Nuclear steam generator | 400 hot primary + 500 secondary water -> 500 high-pressure steam (90 kJ) + 400 cool primary = 45 MW of steam energy |
 | High-pressure turbine train | 500 steam/s x 90 kJ x 100 % = 45 MW |
 | Condenser / cooling | 75 MW rejected: 300 cooling water/s through the condenser, tower or dry cooler |
 
 The steam energy per unit already includes the losses of the thermal cycle (37.5 % of the heat becomes steam energy), so no
-stage creates energy. The surplus heat leaves through the cooling circuit; only the tower's 12 water/s of evaporation is lost.
+stage creates energy. The surplus heat leaves through the cooling circuit; the only water the plant uses up is the cooling
+tower's evaporation (600 vanilla water/s per tower). The primary and secondary loops are closed and lose nothing: a water
+treatment plant (200 water/s -> 200 primary, secondary or cooling water/s) only fills them.

@@ -9,7 +9,7 @@ Every number below is the default of `config.lua`; `dev-tests/test_data.py` reco
  fuel assembly                                    hot primary water                 steam            exhaust
       |                                                  |                            |                  |
  [reactor core] --heat--> [primary circulation unit] --> [nuclear steam generator] --> [HP turbine] --> [surface condenser]
-   (rods: circuit)               ^                              |  feedwater (water) <-----------------------+  |
+   (rods: circuit)               ^                              |  secondary water <--------------------------+  |
                                  +------ cool primary water <---+                                              |
                                                                                     cool cooling water ->  warm cooling water
                                                                                                   ^                |
@@ -19,8 +19,13 @@ Every number below is the default of `config.lua`; `dev-tests/test_data.py` reco
 | Circuit | Fluids | Closed? |
 |---|---|---|
 | Primary | primary water (cool) / hot primary water | yes, loses nothing |
-| Steam | water (feedwater) / high-pressure steam / exhaust steam | yes, loses nothing |
-| Cooling | cooling water / warm cooling water | loses 12/s makeup water at a cooling tower |
+| Secondary (steam) | secondary water / high-pressure steam / exhaust steam | yes, loses nothing |
+| Cooling | cooling water / warm cooling water | a cooling tower evaporates 600/s of vanilla water |
+
+The loops never consume anything (the cooling tower pays for its evaporation with its own makeup water), but they start empty: a **water treatment plant** turns vanilla water into
+primary water, secondary water or cooling water (pick one of its three recipes) to fill them. Secondary water is its own fluid, not vanilla
+water, so the steam side can never be mixed with the water supply or the cooling circuit by accident. Only the cooling tower, the
+spent-fuel pool and the water treatment plant take vanilla water.
 
 Numbers per core: **core 120 MW heat -> 1 circulation unit (120 MW, 400 primary/s) -> 1 steam generator (45 MW of steam energy)
 -> 1 turbine train (45 MW electric); the condenser rejects the other 75 MW.** Cores next to each other boost each other as in
@@ -31,10 +36,11 @@ steam generators. Put units against the core's heat connections or link them wit
 |---|---|---|
 | Pressurized-water reactor core | 5x5 | vanilla reactor prototype, circuit connector on the core |
 | Primary circulation unit | 3x2 | vanilla heat exchanger: heat in at the bottom, cool primary in at either side, hot primary out at the top |
-| Nuclear steam generator | 5x5 | north face: hot primary (left), feedwater (right) in. South face: steam (left), cool primary (right) out. 2 MW pumps |
+| Nuclear steam generator | 5x5 | north face: hot primary (left), secondary water (right) in. South face: steam (left), cool primary (right) out. 2 MW pumps |
 | High-pressure turbine train | 9x15 | native fusion-generator, 500 steam/s x 90 kJ = 45 MW |
-| Surface condenser | 5x5 | exhaust steam (left) + cooling water (right) in; feedwater (left) + warm cooling water (right) out |
-| Cooling tower / dry cooler | 5x5 | tower 600/s warm, 12/s makeup, 1 MW; dry cooler 300/s, 6 MW, no water |
+| Surface condenser | 5x5 | exhaust steam (left) + cooling water (right) in; secondary water (left) + warm cooling water (right) out |
+| Cooling tower / dry cooler | 5x5 | tower 600/s warm + 600/s vanilla water consumed, 1 MW (build it by the water: one offshore pump gives 1200/s); dry cooler 300/s, 6 MW, no water |
+| Water treatment plant | 4x4 | oxidizer art. Choose a recipe: 200 water/s -> primary water, secondary water or cooling water. 0.5 MW. Water in at the north face, treated water out at the south face (both half a tile left of centre). Fills the three loops once; they lose nothing afterwards |
 | Spent-fuel cooling pool | 5x5 | hot assembly + 100 water -> cooled assembly after a fixed 120 s |
 | Dry-cask storage | 3x3 | 48 slots |
 | Reprocessing plant (optional) | 5x5 | cooled assembly + 100 acid + 50 solvent -> U-238, U-235 (40 %), plutonium-bearing material, residue |
@@ -54,11 +60,18 @@ The core reads two signals from its circuit connector (red and green wires are a
 | Signal | Meaning |
 |---|---|
 | **Control-rod withdrawal** (`ipp-rod-withdrawal`) | 0-100 %. 0 = rods fully in = no fission. 100 = fully out = full power. Values outside 0-100 are clamped |
-| **Reactor SCRAM** (`ipp-scram`) | any non-zero value: rods drop at 25 %/s whatever the withdrawal signal says |
+| **Reactor SCRAM** (`ipp-scram`) | any non-zero value: SCRAM (see below), whatever the withdrawal signal says |
 
-* **Fail-safe.** A core with no wire attached drops its rods by itself. A new core starts with rods fully in. (A signal of
-  0 on a connected wire is a normal "rods in" command at the normal speed.)
-* **Rods are slow.** They move 2 %/s (50 s from fully in to fully out) and drop at 25 %/s on a SCRAM. The core's status
+* **SCRAM.** The moment the signal appears the core is *tripped*: the rods are driven all the way in at 25 %/s, even if the
+  signal was only a one-tick pulse, and the reactor shuts down. The rods then **cannot be withdrawn again for 10 minutes**
+  (`reactor.scram_lockout_s` in `config.lua`, counted from the trip; 0 = no waiting, the rods still go fully in). The core's
+  status line counts the lockout down. A scram signal that arrives during a lockout does not restart the timer, and a signal
+  that is still present when the timer ends keeps the rods in until it goes away. Cutting the wire does not end a lockout.
+  Afterheat still needs the primary loop to run during the lockout.
+* **Fail-safe.** A core with no wire attached drops its rods by itself (no lockout; once the wire is back the rods follow the
+  signal again at the normal speed). A new core starts with rods fully in. (A signal of 0 on a connected wire is a normal
+  "rods in" command at the normal speed.)
+* **Rods are slow.** They move 1 %/s (100 s from fully in to fully out) and drop at 25 %/s on a SCRAM. The core's status
   line shows rod position, target, temperature, output multiplier and fuel.
 * **Fission power** = withdrawal x 120 MW x (1 + neighbour bonus). The core is switched off and on every tick in exactly that
   proportion, so fuel burn follows the rods as well as heat.
@@ -81,7 +94,8 @@ draws, the temperature climbs**:
 Time you have: thermal mass x temperature margin / surplus power. A single core at full rods with no cooling at all gains
 6 degC/s (about 80 s from 450 degC); a core with two neighbours gains 18 degC/s (about 26 s).
 
-There is no automatic protection beyond the fail-safe. Build your own SCRAM from the temperature signal if you want one.
+There is no automatic protection beyond the fail-safe. Build your own SCRAM from the temperature signal if you want one;
+remember that every SCRAM costs the lockout time, so set the trip temperature with care.
 
 ### Example controller
 
@@ -93,6 +107,7 @@ Rods follow the demand, trimmed by temperature. For one core feeding one 45 MW t
 3. Trim: arithmetic `(signal-T - 450) * -1 -> Control-rod withdrawal`, added only when `signal-T > 450`, pulls the rods in
    when the core runs hot. The rods are slow and the core has thermal mass, so keep the gain small (a few %/degC) or it will oscillate.
 4. Safety: decider `signal-T > 850 -> Reactor SCRAM = 1`, and wire the same network to every core so one signal drops them all.
+   The scram latches, so the decider does not have to hold the signal, but the core stays down for the whole lockout.
 
 `/ipp-reactor-debug` prints rods, duty, temperature, neighbour bonus, decay heat and wire state of every core.
 

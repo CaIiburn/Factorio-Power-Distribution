@@ -1,4 +1,38 @@
 ---------------------------------------------------------------------------------------------------
+Version: 0.4.2
+Date: 2026-10-30
+  Features:
+    - Water treatment plant (4x4, oxidizer art): three selectable recipes, water -> primary water, water -> secondary
+      water and water -> cooling water. They fill the three closed loops of the pressurized-water plant, which lose
+      nothing in operation.
+      Unlocked by Pressurized-water nuclear power. Config: water_treatment.
+    - New fluid Secondary water: the middle (steam) loop now runs on it instead of vanilla water. The nuclear steam
+      generator takes it in, the surface condenser returns it. The exhaust stack refuses it.
+  Changes:
+    - Reworked the reactor SCRAM. A scram signal now latches the core: the rods always go all the way in at scram speed,
+      even if the signal was only a pulse, and cannot be withdrawn again until a lockout has run out (new config
+      reactor.scram_lockout_s, default 600 = 10 minutes, counted from the trip; 0 = no waiting). The status line shows
+      the countdown. A scram signal during a lockout does not restart it, a signal still present at the end keeps the
+      rods in, and cutting the wire does not end it. An unwired core still just drops its rods, without a lockout.
+    - Turbine-generators (large steam, high-pressure and gas) now have only their four real fluid ports: two inputs
+      (south face) and two exhaust outputs (north face). The five extra pass-through connections that the vanilla fusion
+      generator's input box carries (they let the fluid leave through the input side) are removed, and each
+      direction's fluid_input_graphics is cut to the 2 remaining input connections (the engine requires one entry per
+      input connection). The data stage now fails with a clear message if the vanilla layout ever stops having exactly
+      2 inputs and 2 outputs.
+    - The cooling tower now consumes 600 vanilla water/s (cooling_tower.makeup_per_second, was 12), so it has to be
+      built next to a water supply.
+  Bugfixes:
+    - Fuel assemblies used the pre-2.1 item field 'fuel_category'; 2.1 calls it 'fuel_categories'. Without it the
+      assembly had a fuel value but no fuel category.
+  Minor:
+    - test_data.py: secondary-loop, cooling-tower and water-treatment checks (recipes, sprite sheet sizes, ports).
+    - test_data.py: the fusion-generator mock now has the real vanilla layout (2 inputs, 5 pass-through outputs, 2
+      outputs) and per-direction fluid_input_graphics (7 entries); turbines are checked for exactly 2 + 2 connections
+      with the right flow direction and facing, and for one fluid_input_graphics entry per input connection.
+    - test_reactors.py: SCRAM latch/lockout tests; rod speed, decay heat and meltdown expectations now follow config.lua
+      (they were still on older values and 11 checks failed).
+---------------------------------------------------------------------------------------------------
 Version: 0.4.1
 Date: 2026-10-29
   Bugfixes:

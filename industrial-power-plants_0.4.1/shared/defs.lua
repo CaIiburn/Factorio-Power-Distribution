@@ -104,6 +104,9 @@ do
       "scram_speed_pct_per_second", "rod_exponent", "decay_rise_s", "decay_fall_s", "warning_temperature_c",
       "meltdown_temperature_c", "meltdown_grace_s" } do positive(rc[k], "reactor." .. k) end
   whole(rc.fuel_slots, 1, "reactor.fuel_slots"); whole(rc.spent_slots, 1, "reactor.spent_slots")
+  if type(rc.scram_lockout_s) ~= "number" or rc.scram_lockout_s < 0 then
+    error("industrial-power-plants config.lua: reactor.scram_lockout_s must be a number >= 0 (got " .. tostring(rc.scram_lockout_s) .. ")")
+  end
   if type(rc.neighbour_bonus) ~= "number" or rc.neighbour_bonus < 0 then
     error("industrial-power-plants config.lua: reactor.neighbour_bonus must be a number >= 0 (got " .. tostring(rc.neighbour_bonus) .. ")")
   end
@@ -129,6 +132,7 @@ check("steam_generator", { "hot_primary_per_second", "cool_primary_per_second", 
 check("surface_condenser", { "exhaust_steam_per_second", "cooling_water_per_second", "water_per_second", "power_kw", "idle_drain_kw", "health" })
 check("cooling_tower", { "warm_per_second", "makeup_per_second", "power_kw", "idle_drain_kw", "health" })
 check("dry_cooler", { "warm_per_second", "power_mw", "idle_drain_kw", "health" })
+check("water_treatment", { "primary_per_second", "secondary_per_second", "cooling_per_second", "power_kw", "idle_drain_kw", "health" })
 check("spent_fuel_pool", { "cooling_time_s", "water_per_assembly", "power_kw", "idle_drain_kw", "health" })
 check("dry_cask", { "inventory_slots", "health" })
 check("reprocessing", { "time_s", "acid", "solvent", "uranium_238", "uranium_235", "plutonium", "residue", "power_mw", "idle_drain_kw", "health" })
@@ -140,6 +144,7 @@ whole(C.steam_generator.size, 3, "steam_generator.size", true)
 whole(C.surface_condenser.size, 3, "surface_condenser.size", true)
 whole(C.cooling_tower.size, 3, "cooling_tower.size", true)
 whole(C.dry_cooler.size, 3, "dry_cooler.size", true)
+whole(C.water_treatment.size, 2, "water_treatment.size")   -- any whole size: odd = port on the centre tile, even = half a tile left of it
 whole(C.spent_fuel_pool.size, 3, "spent_fuel_pool.size", true)
 whole(C.dry_cask.size, 1, "dry_cask.size")
 whole(C.dry_cask.inventory_slots, 1, "dry_cask.inventory_slots")
@@ -157,6 +162,7 @@ D.reactor = {
   neighbour_bonus = C.reactor.neighbour_bonus,
   rod_speed       = C.reactor.rod_speed_pct_per_second,
   scram_speed     = C.reactor.scram_speed_pct_per_second,
+  scram_lockout_s = C.reactor.scram_lockout_s,
   rod_exponent    = C.reactor.rod_exponent,
   decay_fraction  = C.reactor.decay_fraction,
   decay_rise_s    = C.reactor.decay_rise_s,
@@ -197,7 +203,7 @@ if log then
   end
   if sg.steam_per_second ~= hp.per_second then warn("steam_generator.steam_per_second differs from the high-pressure turbine intake (" .. hp.per_second .. ")") end
   if sc.exhaust_steam_per_second ~= hp.per_second then warn("surface_condenser.exhaust_steam_per_second differs from the high-pressure turbine exhaust (" .. hp.per_second .. ")") end
-  if sc.water_per_second ~= sg.water_per_second then warn("surface_condenser.water_per_second differs from steam_generator.water_per_second (feedwater loop would gain or lose water)") end
+  if sc.water_per_second ~= sg.water_per_second then warn("surface_condenser.water_per_second differs from steam_generator.water_per_second (secondary loop would gain or lose water)") end
   local heat_in_mw = sg.hot_primary_per_second * D.PRIMARY_UNIT_KJ / 1000
   local steam_out_mw = sg.steam_per_second * D.HP_STEAM_KJ / 1000
   if steam_out_mw > heat_in_mw + 1e-9 then
@@ -235,6 +241,7 @@ D.vent = {
     ["ipp-cooling-water-warm"] = "valuable", -- send it to a cooling tower or dry cooler
     ["ipp-primary-water"]    = "hazard",    -- radioactive primary coolant
     ["ipp-primary-water-hot"] = "hazard",
+    ["ipp-secondary-water"] = "valuable",  -- closed secondary loop: it is never lost, so it is never vented
     ["ipp-solvent"]          = "hazard",
   },
 }

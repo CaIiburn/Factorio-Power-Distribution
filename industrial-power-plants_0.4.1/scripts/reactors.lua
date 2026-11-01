@@ -5,9 +5,15 @@
 --
 --   1. CONTROL RODS. Every CTRL_TICKS the core reads two virtual signals from its circuit connector (red + green):
 --        ipp-rod-withdrawal  0..100 %  how far the rods are pulled out (0 = fully in = no fission)
---        ipp-scram           non-zero  drop the rods at scram speed
---      A core with no wire attached SCRAMs by itself (fail-safe). The real rod position moves toward the
---      setpoint at a limited speed. Fission power = (position/100)^rod_exponent x rated power x (1 + neighbour
+--        ipp-scram           non-zero  SCRAM (see below)
+--      A core with no wire attached drops its rods by itself (fail-safe, no lockout). The real rod position moves
+--      toward the setpoint at a limited speed.
+--      SCRAM is a latched state. The moment the scram signal appears the core is `tripped`: the rods are driven all
+--      the way in at scram speed whatever the signal does afterwards (a one-tick pulse is enough), and they cannot
+--      be withdrawn again until the lockout (config reactor.scram_lockout_s, 10 minutes by default, counted from
+--      the trip) has run out, the rods are fully in and the scram signal is gone. A scram signal that arrives during
+--      a lockout does not restart the timer; a signal that is still present when the timer ends keeps the core
+--      tripped. Cutting the wire does not end a lockout. Fission power = (position/100)^rod_exponent x rated power x (1 + neighbour
 --      bonus). Native consumption cannot be changed at runtime, so the core is switched off and on every tick in
 --      exactly that proportion (`disabled_by_script`, error-diffusion accumulator): average fuel burn and heat
 --      follow the rods.
@@ -40,6 +46,11 @@ end
 
 local function f0(v) return string.format("%.0f", v) end
 local function f2(v) return string.format("%.2f", v) end
+-- 605.2 s -> "10:06" (rounded up, so the display never shows 0:00 while a second is left)
+local function mmss(s)
+  s = math.ceil(s - 1e-9)
+  return string.format("%d:%02d", math.floor(s / 60), s % 60)
+end
 
 -- What the circuit network tells the core: setpoint (0..100), scram (bool), wired (bool).
 -- No wire at all counts as a SCRAM (fail-safe); so does an error reading the connector.
@@ -78,9 +89,18 @@ local function set_status(entry, fueled)
   if T >= R.meltdown_c then
     color = diode.red
     label = { "ipp.reactor-status-critical", f0(T), f0(math.max(0, R.grace_s - entry.hot_ticks / 60)) }
+  elseif entry.tripped then
+    color = diode.yellow
+    if entry.rod > 0.05 then
+      label = { "ipp.reactor-status-scram", f0(entry.rod), f0(T), f2(mult), fuel_label, mmss(entry.lock_left) }
+    elseif entry.lock_left > 0 then
+      label = { "ipp.reactor-status-lockout", mmss(entry.lock_left), f0(T), f2(mult), fuel_label }
+    else
+      label = { "ipp.reactor-status-scram-held", f0(T), f2(mult), fuel_label }
+    end
   elseif entry.scram then
     color = diode.yellow
-    label = { entry.wired and "ipp.reactor-status-scram" or "ipp.reactor-status-unwired", f0(entry.rod), f0(T), f2(mult), fuel_label }
+    label = { "ipp.reactor-status-unwired", f0(entry.rod), f0(T), f2(mult), fuel_label }
   else
     color = (T >= R.warning_c) and diode.yellow or diode.green
     label = { "ipp.reactor-status", f0(entry.rod), f0(entry.setpoint), f0(T), f2(mult), fuel_label }
@@ -106,12 +126,27 @@ end
 function M.control(entry, tick)
   local e = entry.entity
   local set, scram, wired = M.read_signals(e)
-  entry.wired, entry.scram = wired, scram
-  local target = scram and 0 or set
+  -- read_signals reports "no wire / unreadable" as scram = true (fail-safe); only a real signal trips the core
+  local signal = scram and wired
+
+  -- SCRAM latch: trips on the signal, starts the lockout, and is released only when the lockout is over, the rods
+  -- are fully in and the signal is gone (so the rods always go all the way in, whatever the signal does later)
+  if signal and not entry.tripped then
+    entry.tripped = true
+    entry.lock_until = tick + math.floor(R.scram_lockout_s * 60 + 0.5)
+  end
+  if entry.tripped and not signal and tick >= entry.lock_until and entry.rod <= EPS then
+    entry.tripped = false
+  end
+  entry.lock_left = entry.tripped and math.max(0, (entry.lock_until - tick) / 60) or 0
+
+  local drop = entry.tripped or not wired      -- rods are driven in at scram speed
+  entry.wired, entry.scram = wired, drop
+  local target = drop and 0 or set
   entry.setpoint = target
 
   -- rod drive: limited speed; dropping because of a SCRAM (or cut wires) uses the fast scram speed
-  local step = (scram and R.scram_speed or R.rod_speed) * DT
+  local step = (drop and R.scram_speed or R.rod_speed) * DT
   if entry.rod < target then
     entry.rod = math.min(target, entry.rod + R.rod_speed * DT)
   elseif entry.rod > target then
@@ -181,6 +216,7 @@ function M.register(e)
   entry = {
     entity = e, rod = 0, setpoint = 0, duty = 0, acc = 0, decay = 0, hot_ticks = 0,
     offset = e.unit_number % CTRL_TICKS, temp = e.temperature or 0, scram = true, wired = false, on = false,
+    tripped = false, lock_until = 0, lock_left = 0,    -- a new core is not locked out; its rods just start fully in
   }
   list[e.unit_number] = entry
   e.disabled_by_script = true
@@ -204,9 +240,10 @@ function M.debug_lines()
     local e = entry.entity
     if e.valid then
       lines[#lines + 1] = string.format(
-        "%s  rods %.1f%% (set %.0f%%)  duty %.3f  T %.1f C  neighbour_bonus %s  decay %.4f  active %s  wired %s  scram %s  fuel %s",
+        "%s  rods %.1f%% (set %.0f%%)  duty %.3f  T %.1f C  neighbour_bonus %s  decay %.4f  active %s  wired %s  scram %s  tripped %s  lockout left %s  fuel %s",
         e.gps_tag, entry.rod, entry.setpoint, entry.duty, e.temperature or -1, tostring(e.neighbour_bonus),
-        entry.decay, tostring(e.active), tostring(entry.wired), tostring(entry.scram), tostring(has_fuel(e)))
+        entry.decay, tostring(e.active), tostring(entry.wired), tostring(entry.scram), tostring(entry.tripped == true),
+        mmss(entry.lock_left or 0), tostring(has_fuel(e)))
     end
   end
   if #lines == 0 then lines[1] = "no pressurized-water reactor cores" end

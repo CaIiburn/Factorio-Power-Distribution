@@ -49,13 +49,28 @@ for n, sz in pairs{["assembling-machine-1"]=3,["assembling-machine-2"]=3,["assem
 end
 raw["fusion-generator"] = { ["fusion-generator"] = { type="fusion-generator", name="fusion-generator",
   energy_source = {type="electric", usage_priority="primary-output", output_flow_limit="50MW"},
-  input_fluid_box = { production_type="input", volume=100, filter="fusion-plasma", pipe_connections={{flow_direction="input", direction=0, position={0,-2}, connection_category={"fusion-plasma"}, connection_type="normal", hide_connection_info=true}} },
-  output_fluid_box = { production_type="output", volume=100, filter="fusion-plasma", pipe_connections={{flow_direction="output", direction=4, position={1,-1}, connection_category={"fluoroketone"}}, {flow_direction="output", direction=4, position={1,1}, alt_position={0,0}}} },
+  -- layout copied from the vanilla space-age fusion-generator: 2 real inputs on the south face, 5 pass-through
+  -- "output" connections on the input box (north + both sides), 2 outputs on the north face
+  input_fluid_box = { production_type="input", volume=10, filter="fusion-plasma", pipe_connections={
+    {flow_direction="input",  direction=8,  position={-1, 2},  connection_category={"fusion-reactor","fusion-generator"}},
+    {flow_direction="input",  direction=8,  position={1, 2},   connection_category={"fusion-reactor","fusion-generator"}},
+    {flow_direction="output", direction=0,  position={0, -2},  connection_category={"fusion-generator"}},
+    {flow_direction="output", direction=12, position={-1, 0},  connection_category={"fusion-generator"}},
+    {flow_direction="output", direction=4,  position={1, 0},   connection_category={"fusion-generator"}},
+    {flow_direction="output", direction=12, position={-1, -1}, connection_category={"fusion-generator"}},
+    {flow_direction="output", direction=4,  position={1, -1},  connection_category={"fusion-generator"}} } },
+  output_fluid_box = { production_type="output", volume=100, filter="fluoroketone-hot", pipe_connections={
+    {flow_direction="output", direction=0, position={-1, -2}}, {flow_direction="output", direction=0, position={1, -2}} } },
   max_fluid_usage = 1, burns_fluid = false, effectivity = 1, minimum_input_temperature = 1000,
   minable = {result="fusion-generator"}, fast_replaceable_group="fg", next_upgrade="x",
   graphics_set = { animation = { layers = { sprite("fg.png"), shared } }, working_visualisations = { { name = "warm-up", animation = sprite("w.png") } },
-                   states = { { name = "warm-up" }, { name = "on" } } },
-  collision_box={{-1.2,-2.2},{1.2,2.2}}, selection_box={{-1.5,-2.5},{1.5,2.5}} } }
+                   states = { { name = "warm-up" }, { name = "on" } },
+                   -- vanilla: one fluid_input_graphics entry per input-box connection (7 = 2 sprites + 5 empty)
+                   north_graphics_set = { animation = sprite("gn.png"), fluid_input_graphics = { { sprite = sprite("n1.png") }, { sprite = sprite("n2.png") }, {}, {}, {}, {}, {} } },
+                   east_graphics_set  = { animation = sprite("ge.png"), fluid_input_graphics = { { sprite = sprite("e1.png") }, { sprite = sprite("e2.png") }, {}, {}, {}, {}, {} } },
+                   south_graphics_set = { animation = sprite("gs.png"), fluid_input_graphics = { { sprite = sprite("s1.png") }, { sprite = sprite("s2.png") }, {}, {}, {}, {}, {} } },
+                   west_graphics_set  = { animation = sprite("gw.png"), fluid_input_graphics = { { sprite = sprite("w1.png") }, { sprite = sprite("w2.png") }, {}, {}, {}, {}, {} } } },
+  collision_box={{-1.4,-2.4},{1.4,2.4}}, selection_box={{-1.5,-2.5},{1.5,2.5}} } }
 raw.accumulator = { accumulator = { type="accumulator", name="accumulator", energy_source={}, collision_box={{-.9,-.9},{.9,.9}},
   chargable_graphics = { picture = sprite("acc.png"), charge_animation = sprite("c.png") }, water_reflection = { pictures = sprite("r.png") } } }
 raw.item, raw.fluid, raw.technology, raw.recipe = {}, {}, {}, {}
@@ -184,6 +199,12 @@ for tn in D_GEN.keys():
     sc = D_GEN[tn].scale
     if (w, h) != (3*sc, 5*sc): errs.append("%s: footprint %dx%d != %dx%d" % (tn, w, h, 3*sc, 5*sc))
     print("%-38s footprint %dx%d (x%d)" % (tn, w, h, sc))
+    # the engine requires one fluid_input_graphics entry per INPUT connection in every direction's graphics set
+    for dn in ("north_graphics_set", "east_graphics_set", "south_graphics_set", "west_graphics_set"):
+        fig = e.graphics_set[dn].fluid_input_graphics
+        n_in = len(e.input_fluid_box.pipe_connections)
+        if fig is None or len(fig) != n_in: errs.append("%s.%s: fluid_input_graphics has %s entries, the input box has %d connections" % (tn, dn, None if fig is None else len(fig), n_in))
+        elif any(fig[i].sprite is None for i in range(1, n_in+1)): errs.append("%s.%s: a surviving input connection lost its sprite entry" % (tn, dn))
     for boxname in ("input_fluid_box", "output_fluid_box"):
         box = e[boxname]
         for i in range(1, len(box.pipe_connections)+1):
@@ -195,11 +216,20 @@ for tn in D_GEN.keys():
             lat = x if d in (0, 8) else y; size = w if d in (0, 8) else h
             ok_par = (lat % 1 == 0) if size % 2 == 1 else (lat % 1 == 0.5)
             if not on_edge or not ok_par: errs.append("%s.%s: connection not on a valid edge tile (%s,%s)" % (tn, boxname, x, y))
+        # exactly two connections per box: inputs on the south face, exhaust outputs on the north face
+        want_flow, want_dir = ("input", 8) if boxname == "input_fluid_box" else ("output", 0)
+        n_ = len(box.pipe_connections)
+        if n_ != 2: errs.append("%s.%s has %d connections, want exactly 2" % (tn, boxname, n_))
+        for i in range(1, n_+1):
+            pc = box.pipe_connections[i]
+            if pc.flow_direction != want_flow: errs.append("%s.%s connection %d is %s, want %s only" % (tn, boxname, i, pc.flow_direction, want_flow))
+            if pc.direction != want_dir: errs.append("%s.%s connection %d faces %s, want %s" % (tn, boxname, i, pc.direction, want_dir))
+        xs_ = sorted(box.pipe_connections[i].position[1] for i in range(1, n_+1))
+        if n_ == 2 and (xs_[0] != -xs_[1] or xs_[0] >= 0): errs.append("%s.%s ports not symmetric about the centre: %s" % (tn, boxname, xs_))
         for i in range(1, len(box.pipe_connections)+1):
             extra = [k for k in box.pipe_connections[i].keys() if k not in ("flow_direction", "direction", "position")]
             if extra: errs.append("%s.%s connection %d keeps inherited fields %s (e.g. connection_category blocks normal pipes)" % (tn, boxname, i, extra))
-        if boxname == "input_fluid_box" and len(box.pipe_connections) != 1: errs.append(tn + ": input port count")
-        if boxname == "output_fluid_box" and len(box.pipe_connections) != 2: errs.append(tn + ": output port count")
+        if len(box.pipe_connections) != 2: errs.append("%s.%s: port count %d != 2 (two inputs, two exhaust outputs, no pass-through)" % (tn, boxname, len(box.pipe_connections)))
         if box.minimum_temperature is not None or box.maximum_temperature is not None:
             errs.append("%s.%s: removed fluid-box temperature keys present" % (tn, boxname))
 # vent list consistency
@@ -435,13 +465,18 @@ print("steam generator: %.1f MW of primary heat -> %.1f MW of steam energy; turb
 if steam_mw > heat_mw + 1e-9: errs.append("steam generator creates energy")
 if abs(D.PRIMARY_FLOW - amt(sgr, 'in', 'ipp-primary-water-hot')) > 1e-6: errs.append("one circulation unit does not feed one steam generator")
 if amt(sgr, 'in', 'ipp-primary-water-hot') != amt(sgr, 'out', 'ipp-primary-water'): errs.append("primary loop is not closed")
-if amt(sgr, 'in', 'water') != amt(recipes["ipp-surface-condensation"], 'out', 'water'): errs.append("feedwater loop is not closed")
+if amt(sgr, 'in', 'ipp-secondary-water') != amt(recipes["ipp-surface-condensation"], 'out', 'ipp-secondary-water'): errs.append("secondary loop is not closed")
+for rn_ in ("ipp-nuclear-steam-generation", "ipp-surface-condensation"):
+    for kind_ in ('in', 'out'):
+        if amt(recipes[rn_], kind_, 'water') is not None: errs.append("%s still uses vanilla water (the middle loop runs on secondary water)" % rn_)
 if amt(sgr, 'out', 'ipp-hp-steam') != hpg.per_second: errs.append("steam generator output != turbine intake")
 sc_r = recipes["ipp-surface-condensation"]
 if amt(sc_r, 'in', 'ipp-exhaust-steam') != hpg.per_second: errs.append("condenser intake != turbine exhaust")
 if amt(sc_r, 'in', 'ipp-cooling-water') != amt(sc_r, 'out', 'ipp-cooling-water-warm'): errs.append("cooling loop gains/loses water at the condenser")
 tw = recipes["ipp-cooling-tower-cycle"]
-if amt(tw, 'in', 'water') >= amt(tw, 'in', 'ipp-cooling-water-warm'): errs.append("tower evaporates more than it moves")
+if amt(tw, 'in', 'water') != CF.cooling_tower.makeup_per_second: errs.append("tower makeup water != config")
+if CF.cooling_tower.makeup_per_second != 600: errs.append("cooling tower makeup is meant to be 600 vanilla water/s (forces building near water)")
+if amt(tw, 'in', 'ipp-secondary-water') is not None or amt(tw, 'in', 'ipp-primary-water') is not None: errs.append("tower makeup must be vanilla water")
 if amt(tw, 'in', 'ipp-cooling-water-warm') != amt(tw, 'out', 'ipp-cooling-water'): errs.append("tower should return all cooling water (makeup is the loss)")
 # fuel chain
 fa = raw.item["ipp-fuel-assembly"]
@@ -476,6 +511,58 @@ for c in ("ipp-nuclear-shielding", "ipp-control-rod-assembly", "ipp-radhard-cont
 # control-rod signals
 for sg_name in (D.SIGNAL_ROD, D.SIGNAL_SCRAM):
     if raw["virtual-signal"][sg_name] is None: errs.append("virtual signal missing: " + sg_name)
+# ---- water treatment plant + the two closed-loop fluids ----
+wtc = CF.water_treatment
+wp = am["ipp-water-treatment-plant"]
+if wp is None: errs.append("water treatment plant missing")
+else:
+    if side(wp.selection_box) != (4, 4) or wtc.size != 4: errs.append("water treatment plant must be 4x4 (config %s, box %s)" % (wtc.size, side(wp.selection_box)))
+    for i_ in (1, 2):
+        pc_ = wp.fluid_boxes[i_].pipe_connections[1].position
+        if pc_[1] != -0.5 or abs(pc_[2]) != 1.5: errs.append("water treatment port %d at (%s,%s): a 4x4 needs x = -0.5 and y = +-1.5" % (i_, pc_[1], pc_[2]))
+    if wp.fixed_recipe is not None: errs.append("water treatment plant needs a recipe selection (two recipes)")
+    if "ipp-water-treatment-plant" not in items or "ipp-water-treatment-plant" not in unlocked: errs.append("water treatment plant item / unlock missing")
+    if str(wp.energy_usage) != "%.6gkW" % wtc.power_kw: errs.append("water treatment power != config")
+    if wp.max_health != wtc.health: errs.append("water treatment health != config")
+    nin_ = sum(1 for i in range(1, len(wp.fluid_boxes)+1) if wp.fluid_boxes[i].production_type == "input")
+    nout_ = sum(1 for i in range(1, len(wp.fluid_boxes)+1) if wp.fluid_boxes[i].production_type == "output")
+    if (nin_, nout_) != (1, 1): errs.append("water treatment fluid ports %d/%d != 1/1" % (nin_, nout_))
+    wl = wp.graphics_set.animation.layers
+    if not str(wl[1].filename).endswith("oxidizer/oxidizer-hr-animation-1.png"): errs.append("water treatment plant: not using the oxidizer art")
+    if not str(wl[1].filename).startswith("__industrial-power-plants__/graphics/"): errs.append("water treatment plant: sprite path must be inside the mod")
+    if (wl[1].width, wl[1].height, wl[1].frame_count, wl[1].line_length) != (280, 320, 60, 8): errs.append("water treatment plant: sprite sheet layout mismatch")
+    if wl[2].draw_as_shadow is not True or wl[2].repeat_count != 60 or (wl[2].width, wl[2].height) != (700, 500): errs.append("water treatment plant: shadow layer")
+    if wp.graphics_set.working_visualisations[1].animation.draw_as_glow is not True: errs.append("water treatment plant: emission layer")
+    if abs(wl[1].scale - 0.5 * wtc.size / 4) > 1e-9 or abs(wl[2].scale - wl[1].scale) > 1e-9: errs.append("water treatment plant: sprite scale does not follow size")
+    from PIL import Image
+    for lay in (wl[1], wl[2], wp.graphics_set.working_visualisations[1].animation):
+        p_ = os.path.join(MOD, str(lay.filename).replace("__industrial-power-plants__/", ""))
+        if not os.path.exists(p_): errs.append("missing sprite file " + p_); continue
+        w_, h_ = Image.open(p_).size
+        if lay.line_length and (lay.line_length * lay.width != w_ or -(-lay.frame_count // lay.line_length) * lay.height != h_):
+            errs.append("sprite %s is %dx%d, expected %dx%d for the declared frames" % (p_, w_, h_, lay.line_length * lay.width, -(-lay.frame_count // lay.line_length) * lay.height))
+        if not lay.line_length and (lay.width, lay.height) != (w_, h_): errs.append("shadow %s is %dx%d, declared %dx%d" % (p_, w_, h_, lay.width, lay.height))
+    if not os.path.exists(os.path.join(MOD, str(wp.icons[1].icon).replace("__industrial-power-plants__/", ""))): errs.append("missing water treatment icon")
+wtp, wts, wtcool = recipes["ipp-primary-water-treatment"], recipes["ipp-secondary-water-treatment"], recipes["ipp-cooling-water-treatment"]
+if wtp is None or wts is None or wtcool is None: errs.append("water treatment recipes missing")
+else:
+    for rr, out_name, want in ((wtp, "ipp-primary-water", wtc.primary_per_second), (wts, "ipp-secondary-water", wtc.secondary_per_second), (wtcool, "ipp-cooling-water", wtc.cooling_per_second)):
+        if rcats(rr) != ["ipp-water-treatment"]: errs.append(rr.name + ": category")
+        if len(rr.ingredients) != 1 or rr.ingredients[1].name != "water" or rr.ingredients[1].type != "fluid" or rr.ingredients[1].amount != want: errs.append(rr.name + ": must take exactly the configured vanilla water")
+        if len(rr.results) != 1 or rr.results[1].name != out_name or rr.results[1].amount != want: errs.append(rr.name + ": must make exactly the configured amount of " + out_name)
+        if unlocked.get(rr.name, [None])[0] != "ipp-pressurized-water-power": errs.append(rr.name + ": belongs to the base tier 3 research")
+for f_ in ("ipp-secondary-water", "ipp-primary-water", "ipp-cooling-water"):
+    if f_ not in fluids: errs.append("missing fluid " + f_)
+sw = raw.fluid["ipp-secondary-water"]
+if sw.max_temperature is not None and sw.max_temperature != sw.default_temperature: errs.append("secondary water must have no temperature range")
+if sw.fuel_value is not None: errs.append("secondary water is not a fuel")
+if V.denied["ipp-secondary-water"] != "valuable" or "ipp-secondary-water" in allowed: errs.append("secondary water must be refused by the exhaust stack")
+# nothing but the pool, the tower and the plant may still take vanilla water in tier 3
+for rn_ in recipes.keys():
+    if not any(c in ("ipp-steam-generation", "ipp-surface-condensing", "ipp-evaporative-cooling", "ipp-dry-cooling", "ipp-fuel-cooling", "ipp-water-treatment") for c in rcats(recipes[rn_])): continue
+    if amt(recipes[rn_], 'in', 'water') is not None and rn_ not in ("ipp-cooling-tower-cycle", "ipp-spent-fuel-cooling", "ipp-primary-water-treatment", "ipp-secondary-water-treatment", "ipp-cooling-water-treatment"):
+        errs.append(rn_ + ": unexpected vanilla water input")
+print("water treatment: %.0f water/s -> primary water, %.0f -> secondary water, %.0f -> cooling water; tower evaporates %.0f water/s" % (wtc.primary_per_second, wtc.secondary_per_second, wtc.cooling_per_second, CF.cooling_tower.makeup_per_second))
 # vanilla replacement
 ne = raw.technology["nuclear-power"].effects
 left = [ne[i].recipe for i in range(1, len(ne)+1)]

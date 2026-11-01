@@ -6,7 +6,7 @@ local cats = {
   "ipp-condensing", "ipp-venting", "ipp-gas-conditioning", "ipp-heat-recovery",
   -- tier 3
   "ipp-steam-generation", "ipp-surface-condensing", "ipp-evaporative-cooling", "ipp-dry-cooling", "ipp-fuel-cooling",
-  "ipp-reprocessing", "ipp-vitrification",
+  "ipp-reprocessing", "ipp-vitrification", "ipp-water-treatment",
 }
 for _, c in ipairs(cats) do data:extend { { type = "recipe-category", name = c } } end
 
@@ -61,6 +61,10 @@ fluid("ipp-flue-gas",         "petroleum-gas", U.color(0.55, 0.55, 0.55), "e")
 fluid("ipp-primary-water",     "water",         U.color(0.55, 0.85, 1.00), "f", { heat_capacity = "1kJ" })
 fluid("ipp-primary-water-hot", "water",         U.color(1.00, 0.55, 0.45), "g", { heat_capacity = "1kJ",
   max_temperature = D.config.primary_unit.hot_fluid_max_c })
+-- Secondary water: the fluid of the middle (steam) loop. Steam generator in, surface condenser out. It is made from
+-- vanilla water by the water treatment plant and never consumed. Default temperature, no heat capacity (like the
+-- other steam-side fluids) - its energy is carried by the steam.
+fluid("ipp-secondary-water",   "water",         U.color(0.50, 0.92, 0.80), "gb")
 fluid("ipp-hp-steam",          "steam",         U.color(0.80, 0.90, 1.00), "h", { fuel_value = D.HP_STEAM_KJ .. "kJ",
   localised_description = { "fluid-description.ipp-hp-steam", D.fmt(D.HP_STEAM_KJ) } })
 fluid("ipp-cooling-water",      "water",        U.color(0.35, 0.75, 0.95), "i")

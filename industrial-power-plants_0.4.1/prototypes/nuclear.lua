@@ -7,6 +7,11 @@
 --                         in, hot primary water out.
 --   * Steam generator, surface condenser, cooling tower, dry cooler, cooling pool, reprocessing plant, vitrifier :
 --                         crafting machines with fixed recipes, built like the Tier 2 machines.
+--   * Water treatment plant : the one machine here with two selectable recipes (water -> primary water, water ->
+--                         secondary water). It fills the two closed loops. Oxidizer art (graphics/oxidizer).
+--   * The three fluid loops : primary (primary water / hot primary water), secondary (secondary water / high-pressure
+--                         steam / exhaust steam) and cooling (cooling water / warm cooling water). Only the cooling
+--                         tower, the spent-fuel pool and the water treatment plant take vanilla water.
 --   * High-pressure turbine train : a native fusion-generator (see D.generators and the loop in machines.lua).
 --   * Dry-cask storage  : a scaled steel chest.
 local D = require("shared.defs")
@@ -30,7 +35,7 @@ local function plain_item(name, base, tint, order, extra)
 end
 
 plain_item("ipp-fuel-assembly", "uranium-fuel-cell", U.color(0.70, 0.90, 1.00), "a", {
-  fuel_category = "ipp-fuel-assembly",
+  fuel_categories = { "ipp-fuel-assembly" },
   fuel_value = unit(C.fuel_assembly.energy_gj, "GJ"),
   burnt_result = "ipp-spent-fuel-assembly",
   localised_description = {
@@ -78,7 +83,7 @@ do
   U.restyle(r.picture, 1, core_tint)
   if r.lower_layer_picture then U.restyle(r.lower_layer_picture, 1, core_tint) end
   local desc = { D.fmt(RC.power_mw), D.fmt(RC.warning_temperature_c), D.fmt(RC.meltdown_temperature_c), D.fmt(RC.meltdown_grace_s),
-                 D.fmt(RC.rod_speed_pct_per_second), D.fmt(RC.scram_speed_pct_per_second) }
+                 D.fmt(RC.rod_speed_pct_per_second), D.fmt(RC.scram_speed_pct_per_second), D.fmt(RC.scram_lockout_s / 60) }
   r.localised_description = { "entity-description." .. D.REACTOR, table.unpack(desc) }
   data:extend { r, item_for(D.REACTOR, "nuclear-reactor", core_tint, "m", nil, desc) }
 end
@@ -119,10 +124,40 @@ end
 --------------------------------------------------------------------------------------------------
 local sg, sc, ct, dc = C.steam_generator, C.surface_condenser, C.cooling_tower, C.dry_cooler
 local sp, rp, vt = C.spent_fuel_pool, C.reprocessing, C.vitrifier
+local wt = C.water_treatment
 local function volume_for(floor, ...) return vol(math.max(...), floor) end
 
+--------------------------------------------------------------------------------------------------
+-- Oxidizer art (Hurricane46, see graphics/License.txt), used for the water treatment plant.
+-- 280 x 320 px frames, 60 frames in an 8-column sheet (the preview plays at 20 fps = animation_speed 1/3), a
+-- separate emission sheet and a single shadow image. Like the chemical-stager art the sprite is centred on the
+-- entity and drawn at scale 0.5 (64 px per tile) for the footprint it was made for. The art is drawn for a
+-- 4 x 4 footprint (its body is about 4.3 tiles wide at that scale), so scale = 0.5 x size / 4 (0.5 at the default 4x4).
+--------------------------------------------------------------------------------------------------
+local OXIDIZER = "__industrial-power-plants__/graphics/oxidizer/oxidizer-"
+local OXIDIZER_NATIVE_SIZE = 4
+local function oxidizer_layer(file, scale, extra)
+  local l = { filename = OXIDIZER .. file, priority = "high", width = 280, height = 320,
+              frame_count = 60, line_length = 8, scale = scale, animation_speed = 1 / 3 }
+  for k, v in pairs(extra or {}) do l[k] = v end
+  return l
+end
+local function oxidizer_graphics(size)
+  local scale = 0.5 * size / OXIDIZER_NATIVE_SIZE
+  return {
+    animation = { layers = {
+      oxidizer_layer("hr-animation-1.png", scale),
+      { filename = OXIDIZER .. "hr-shadow.png", priority = "high", width = 700, height = 500,
+        frame_count = 1, repeat_count = 60, scale = scale, draw_as_shadow = true },
+    } },
+    working_visualisations = { { animation = oxidizer_layer("hr-emission-1.png", scale,
+      { draw_as_glow = true, blend_mode = "additive" }) } },
+  }
+end
+local function oxidizer_icons() return { { icon = OXIDIZER .. "icon.png", icon_size = 64 } } end
+
 local machines = {
-  -- hot primary (left) + feedwater (right) in; steam (left) + cool primary (right) out
+  -- hot primary (left) + secondary water (right) in; steam (left) + cool primary (right) out
   { name = "ipp-nuclear-steam-generator", base = "chemical-plant", size = sg.size, tint = U.color(0.75, 0.88, 1.00), order = "o",
     categories = { "ipp-steam-generation" }, fixed_recipe = "ipp-nuclear-steam-generation", health = sg.health,
     energy_source = elec(unit(sg.idle_drain_kw, "kW")), energy_usage = unit(sg.power_mw, "MW"),
@@ -133,7 +168,7 @@ local machines = {
                { kind = "output", dir = "south", lat = -1, volume = v }, { kind = "output", dir = "south", lat = 1, volume = v } }
     end)() },
 
-  -- exhaust steam (left) + cool cooling water (right) in; feedwater (left) + warm cooling water (right) out
+  -- exhaust steam (left) + cool cooling water (right) in; secondary water (left) + warm cooling water (right) out
   { name = "ipp-surface-condenser", base = "chemical-plant", size = sc.size, tint = U.color(0.70, 0.90, 1.00), order = "p",
     categories = { "ipp-surface-condensing" }, fixed_recipe = "ipp-surface-condensation", health = sc.health,
     energy_source = elec(unit(sc.idle_drain_kw, "kW")), energy_usage = unit(sc.power_kw, "kW"),
@@ -144,7 +179,7 @@ local machines = {
                { kind = "output", dir = "south", lat = -1, volume = v }, { kind = "output", dir = "south", lat = 1, volume = v } }
     end)() },
 
-  -- warm cooling water (left) + makeup water (right) in; cool cooling water out
+  -- warm cooling water (left) + makeup water (vanilla water, right) in; cool cooling water out
   { name = "ipp-cooling-tower", base = "chemical-plant", size = ct.size, tint = U.color(0.80, 0.85, 0.90), order = "q",
     categories = { "ipp-evaporative-cooling" }, fixed_recipe = "ipp-cooling-tower-cycle", health = ct.health,
     energy_source = elec(unit(ct.idle_drain_kw, "kW")), energy_usage = unit(ct.power_kw, "kW"),
@@ -185,6 +220,20 @@ local machines = {
     categories = { "ipp-vitrification" }, fixed_recipe = "ipp-vitrification", health = vt.health,
     energy_source = elec(unit(vt.idle_drain_kw, "kW")), energy_usage = unit(vt.power_mw, "MW"),
     desc = { D.fmt(vt.residue), D.fmt(vt.frit), D.fmt(vt.time_s) } },
+
+  -- vanilla water in (north), primary or secondary water out (south); the recipe is chosen by hand.
+  -- An even footprint (default 4x4) has no centre tile, so both ports sit half a tile left of centre.
+  { name = "ipp-water-treatment-plant", base = "chemical-plant", size = wt.size, order = "o2",
+    graphics = oxidizer_graphics, icons = oxidizer_icons, health = wt.health,
+    drawing_extension = 0.7 * wt.size / OXIDIZER_NATIVE_SIZE,
+    categories = { "ipp-water-treatment" },
+    energy_source = elec(unit(wt.idle_drain_kw, "kW")), energy_usage = unit(wt.power_kw, "kW"),
+    desc = { D.fmt(wt.primary_per_second), D.fmt(wt.secondary_per_second), D.fmt(wt.cooling_per_second), D.fmt(wt.power_kw) },
+    fluid_boxes = (function()
+      local v = volume_for(1000, wt.primary_per_second, wt.secondary_per_second, wt.cooling_per_second)
+      local lat = (wt.size % 2 == 1) and 0 or -0.5
+      return { { kind = "input", dir = "north", lat = lat, volume = v }, { kind = "output", dir = "south", lat = lat, volume = v } }
+    end)() },
 }
 for _, m in ipairs(machines) do build_machine(m) end
 
@@ -220,12 +269,12 @@ end
 --------------------------------------------------------------------------------------------------
 local fl, it = U.icons_of_fluid, U.icons_of_item
 process("ipp-nuclear-steam-generation", { "ipp-steam-generation" }, 1,
-  { { "fluid", "ipp-primary-water-hot", sg.hot_primary_per_second }, { "fluid", "water", sg.water_per_second } },
+  { { "fluid", "ipp-primary-water-hot", sg.hot_primary_per_second }, { "fluid", "ipp-secondary-water", sg.water_per_second } },
   { { "fluid", "ipp-hp-steam", sg.steam_per_second }, { "fluid", "ipp-primary-water", sg.cool_primary_per_second } },
   fl("ipp-hp-steam"))
 process("ipp-surface-condensation", { "ipp-surface-condensing" }, 1,
   { { "fluid", "ipp-exhaust-steam", sc.exhaust_steam_per_second }, { "fluid", "ipp-cooling-water", sc.cooling_water_per_second } },
-  { { "fluid", "water", sc.water_per_second }, { "fluid", "ipp-cooling-water-warm", sc.cooling_water_per_second } },
+  { { "fluid", "ipp-secondary-water", sc.water_per_second }, { "fluid", "ipp-cooling-water-warm", sc.cooling_water_per_second } },
   fl("ipp-cooling-water-warm"))
 process("ipp-cooling-tower-cycle", { "ipp-evaporative-cooling" }, 1,
   { { "fluid", "ipp-cooling-water-warm", ct.warm_per_second }, { "fluid", "water", ct.makeup_per_second } },
@@ -233,6 +282,16 @@ process("ipp-cooling-tower-cycle", { "ipp-evaporative-cooling" }, 1,
 process("ipp-dry-cooler-cycle", { "ipp-dry-cooling" }, 1,
   { { "fluid", "ipp-cooling-water-warm", dc.warm_per_second } },
   { { "fluid", "ipp-cooling-water", dc.warm_per_second } }, fl("ipp-cooling-water"))
+-- Water treatment: vanilla water -> the closed-loop fluids (1:1, one second per craft). Chosen by hand in the plant.
+process("ipp-primary-water-treatment", { "ipp-water-treatment" }, 1,
+  { { "fluid", "water", wt.primary_per_second } },
+  { { "fluid", "ipp-primary-water", wt.primary_per_second } }, fl("ipp-primary-water"))
+process("ipp-secondary-water-treatment", { "ipp-water-treatment" }, 1,
+  { { "fluid", "water", wt.secondary_per_second } },
+  { { "fluid", "ipp-secondary-water", wt.secondary_per_second } }, fl("ipp-secondary-water"))
+process("ipp-cooling-water-treatment", { "ipp-water-treatment" }, 1,
+  { { "fluid", "water", wt.cooling_per_second } },
+  { { "fluid", "ipp-cooling-water", wt.cooling_per_second } }, fl("ipp-cooling-water"))
 process("ipp-spent-fuel-cooling", { "ipp-fuel-cooling" }, sp.cooling_time_s,
   { { "item", "ipp-spent-fuel-assembly", 1 }, { "fluid", "water", sp.water_per_assembly } },
   { { "item", "ipp-spent-fuel-assembly-cooled", 1 } }, it("ipp-spent-fuel-assembly-cooled"))
@@ -281,6 +340,8 @@ building("ipp-surface-condenser", 12, { { "item", F, 3 }, { "item", "ipp-heat-ex
 local cooler = { { "item", F, 4 }, { "item", "ipp-heat-exchanger-panel", 8 }, { "item", "ipp-pump-assembly", 2 }, { "item", "concrete", 20 } }
 building("ipp-cooling-tower", 10, cooler)
 building("ipp-dry-cooler", 10, cooler)
+building("ipp-water-treatment-plant", 12, { { "item", F, 3 }, { "item", "ipp-pressure-vessel", 2 }, { "item", "ipp-pump-assembly", 4 },
+  { "item", "ipp-reinforced-pipe", 6 }, { "item", "ipp-control-cabinet", 1 } })
 building("ipp-spent-fuel-pool", 15, { { "item", "concrete", 50 }, { "item", "steel-plate", 30 }, { "item", "ipp-nuclear-shielding", 6 },
   { "item", "ipp-pump-assembly", 2 }, { "item", "ipp-radhard-controller", 1 } })
 building("ipp-dry-cask-storage", 8, { { "item", "concrete", 40 }, { "item", "steel-plate", 20 }, { "item", "ipp-nuclear-shielding", 4 } })

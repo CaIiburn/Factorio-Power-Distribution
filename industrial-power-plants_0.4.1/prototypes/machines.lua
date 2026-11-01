@@ -243,6 +243,10 @@ local function scaled_boxes(s)
 end
 
 -- Rebuild the pipe connections of a vanilla fusion-generator fluid box.
+--   * Only connections with flow_direction == `keep_flow` survive. The vanilla input box carries 2 real inputs (south
+--     face) plus 5 pass-through connections with flow_direction "output" (north face and both sides) that let the
+--     fluid leave through the input side; a turbine here keeps just the two inputs on the input box and the two
+--     exhaust outputs on the output box, so no steam or gas can leave through the input side.
 --   * Position is re-seated on the edge tile of the (scaled) footprint, on the connection's original side.
 --   * Only flow_direction, direction and position are kept. Everything else the vanilla connection carries
 --     (notably connection_category - Space Age uses a special category for fusion plasma so that ordinary pipes
@@ -254,9 +258,17 @@ local function snap(v, size)            -- nearest valid tile centre for this fo
   return sign * (math.floor(math.abs(v)) + 0.5)
 end
 
-local function rebuild_connections(box, boxname, s, w, h)
+-- Returns the original (vanilla) indices of the connections that were kept, in order: the generator's
+-- graphics_set holds one fluid_input_graphics entry per input-box connection, by index, and has to be cut to match.
+local function rebuild_connections(box, boxname, s, w, h, keep_flow)
+  local kept, kept_idx = {}, {}
+  for i, c in ipairs(box.pipe_connections) do
+    if c.flow_direction == keep_flow then kept[#kept + 1] = c; kept_idx[#kept_idx + 1] = i end
+  end
+  assert(#kept == 2, "industrial-power-plants: " .. boxname .. " should keep exactly 2 " .. keep_flow
+    .. " connections, found " .. #kept .. " (the vanilla fusion generator layout changed?)")
   local rebuilt = {}
-  for _, c in ipairs(box.pipe_connections) do
+  for _, c in ipairs(kept) do
     assert(c.position, "industrial-power-plants: fusion generator connection without a single `position`")
     local px, py = c.position[1] or c.position.x, c.position[2] or c.position.y
     local d = c.direction
@@ -277,6 +289,24 @@ local function rebuild_connections(box, boxname, s, w, h)
     rebuilt[#rebuilt + 1] = { flow_direction = c.flow_direction, direction = d, position = pos }
   end
   box.pipe_connections = rebuilt
+  return kept_idx
+end
+
+-- Each direction's graphics set lists one fluid_input_graphics entry per input-box connection (the engine rejects a
+-- count mismatch: "contains 7 values but 2 (same as amount of input fluid connections) were expected"). Keep the
+-- entries of the surviving connections only; the vanilla entries of the removed pass-through connections are empty.
+local function trim_input_graphics(graphics_set, kept_idx, name)
+  for _, dname in ipairs { "north_graphics_set", "east_graphics_set", "south_graphics_set", "west_graphics_set" } do
+    local ds = graphics_set and graphics_set[dname]
+    if ds and ds.fluid_input_graphics then
+      local old, new = ds.fluid_input_graphics, {}
+      for _, i in ipairs(kept_idx) do
+        assert(old[i] ~= nil, "industrial-power-plants: " .. name .. "." .. dname .. ".fluid_input_graphics has no entry " .. i)
+        new[#new + 1] = old[i]
+      end
+      ds.fluid_input_graphics = new
+    end
+  end
 end
 
 for name, g in pairs(D.generators) do
@@ -306,8 +336,9 @@ for name, g in pairs(D.generators) do
   do
     local sel, col, w, h = scaled_boxes(s)
     if s ~= 1 then p.selection_box, p.collision_box = sel, col end
-    rebuild_connections(p.input_fluid_box, name .. ".input_fluid_box", s, w, h)
-    rebuild_connections(p.output_fluid_box, name .. ".output_fluid_box", s, w, h)
+    local kept_in = rebuild_connections(p.input_fluid_box, name .. ".input_fluid_box", s, w, h, "input")
+    rebuild_connections(p.output_fluid_box, name .. ".output_fluid_box", s, w, h, "output")
+    trim_input_graphics(p.graphics_set, kept_in, name)
   end
   if s ~= 1 then
     p.input_fluid_box.volume = (p.input_fluid_box.volume or 100) * s * s

@@ -49,7 +49,7 @@ data:extend {
       D.REACTOR, "ipp-primary-circulation-unit", "ipp-nuclear-steam-generator", "ipp-hp-turbine-generator",
       "ipp-surface-condenser", "ipp-cooling-tower", "ipp-dry-cooler", "ipp-spent-fuel-pool", "ipp-dry-cask-storage",
       "ipp-nuclear-steam-generation", "ipp-surface-condensation", "ipp-cooling-tower-cycle", "ipp-dry-cooler-cycle",
-      "ipp-spent-fuel-cooling",
+      "ipp-spent-fuel-cooling", "ipp-water-treatment-plant", "ipp-primary-water-treatment", "ipp-secondary-water-treatment", "ipp-cooling-water-treatment",
     },
     unit = { count = R.pressurized_water_power.count, time = R.pressurized_water_power.time, ingredients = {
       { "automation-science-pack", 1 }, { "logistic-science-pack", 1 }, { "chemical-science-pack", 1 } } },

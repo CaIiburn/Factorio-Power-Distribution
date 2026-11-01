@@ -87,12 +87,14 @@ run(e, 5)
 check("no wire: stays off, status says unwired", e.disabled_by_script is True and str(e.custom_status.label[1]) == "ipp.reactor-status-unwired", e.custom_status.label[1])
 check("no wire: status colour is yellow", e.custom_status.diode == "yellow")
 
-print("rod withdrawal follows the signal at limited speed")
+FULL = 100 / R.rod_speed + 2     # seconds the rods need to come fully out (plus a margin)
+DROP = 100 / R.scram_speed + 0.5 # seconds a SCRAM needs to drive them fully in (plus a margin)
+print("rod withdrawal follows the signal at limited speed (config rod speed %s %%/s)" % R.rod_speed)
 e = mk(); M.register(e); e.sig["ipp-rod-withdrawal"] = 100
 run(e, 25)
-check("after 25 s at 2 %/s rods are about 50 %", abs(entry(e).rod - 50) < 1.0, entry(e).rod)
-run(e, 30)
-check("after 55 s rods are fully out (100 %)", abs(entry(e).rod - 100) < 1e-6, entry(e).rod)
+check("after 25 s the rods are at 25 s x rod speed", abs(entry(e).rod - 25 * R.rod_speed) < 1.0, entry(e).rod)
+run(e, FULL - 25)
+check("after the full travel time rods are fully out (100 %)", abs(entry(e).rod - 100) < 1e-6, entry(e).rod)
 e.sig["ipp-rod-withdrawal"] = 250
 run(e, 5); check("setpoint above 100 is clamped", entry(e).rod <= 100 + 1e-9)
 e.sig["ipp-rod-withdrawal"] = -40
@@ -100,29 +102,89 @@ run(e, 3); check("negative setpoint is clamped to 0 (moving at rod speed)", entr
 
 print("fission duty follows the rods (error-diffusion duty cycle)")
 e = mk(); M.register(e); e.sig["ipp-rod-withdrawal"] = 40
-run(e, 40)       # 40 % reached after 20 s
+run(e, 40 / R.rod_speed + 1)       # 40 % reached after 40 / rod speed seconds
 check("rods settled at 40 %", abs(entry(e).rod - 40) < 1e-6, entry(e).rod)
 reset_counts(e); run(e, 20)
 check("core is enabled in 40 % of ticks", abs(e.on_ticks / e.total_ticks - 0.40) < 0.005, e.on_ticks / e.total_ticks)
-e2 = mk(); M.register(e2); e2.sig["ipp-rod-withdrawal"] = 100; run(e2, 60); reset_counts(e2); run(e2, 5)
+e2 = mk(); M.register(e2); e2.sig["ipp-rod-withdrawal"] = 100; run(e2, FULL); reset_counts(e2); run(e2, 5)
 check("at 100 % the core is enabled every tick", e2.on_ticks == e2.total_ticks)
 
-print("SCRAM")
-e = mk(); M.register(e); e.sig["ipp-rod-withdrawal"] = 100; run(e, 60)
-e.sig["ipp-scram"] = 1; run(e, 4.2)
-check("scram drops full rods in about 4 s (25 %/s)", entry(e).rod < 1.0, entry(e).rod)
-run(e, 2); e.sig["ipp-rod-withdrawal"] = 100
+print("SCRAM: latched, rods always fully in, lockout before they can come out again (config %s s)" % R.scram_lockout_s)
+LOCK = R.scram_lockout_s
+def full_power():
+    c = mk(); M.register(c); c.sig["ipp-rod-withdrawal"] = 100; run(c, FULL); return c
+e = full_power()
+check("rods fully out before the scram", abs(entry(e).rod - 100) < 1e-6)
+e.sig["ipp-scram"] = 1; run(e, DROP)
+check("scram drives full rods fully in at scram speed", entry(e).rod == 0, entry(e).rod)
+check("the core is tripped", entry(e).tripped is True)
+e.sig["ipp-rod-withdrawal"] = 100; run(e, 1)
 check("scram wins over a withdrawal setpoint", entry(e).rod == 0 and entry(e).setpoint == 0)
+check("status shows the lockout countdown while rods are in", str(e.custom_status.label[1]) == "ipp.reactor-status-lockout", e.custom_status.label[1])
 e.sig["ipp-scram"] = None
-run(e, 10); check("rods come out again after the scram is cleared, at normal speed", 15 < entry(e).rod < 25, entry(e).rod)
+run(e, 60)
+check("60 s after the scram signal is gone the rods are still locked in", entry(e).rod == 0 and entry(e).tripped is True, entry(e).rod)
+check("lockout countdown is about the configured time (less what has passed)", abs(entry(e).lock_left - (LOCK - DROP - 61)) < 3, entry(e).lock_left)
+check("a locked-out core is switched off", e.disabled_by_script is True)
+run(e, LOCK - DROP - 61 - 4)       # about 4 s before the lockout ends
+check("still locked 4 s before the lockout ends", entry(e).rod == 0 and entry(e).tripped is True, (entry(e).rod, entry(e).lock_left))
+run(e, 4 + 10)                      # 10 s after it ended
+check("the rods are released when the lockout is over", entry(e).tripped is False and 0 < entry(e).rod < 15 * R.rod_speed + 1, (entry(e).tripped, entry(e).rod))
+check("... and come out at normal speed, not scram speed", entry(e).rod < 10 * R.rod_speed + 2, entry(e).rod)
 
-print("fail-safe")
-e = mk(); M.register(e); e.sig["ipp-rod-withdrawal"] = 100; run(e, 60)
-e.wired = False; run(e, 4.2)
+e = full_power()
+e.sig["ipp-scram"] = 1; run(e, 0.2); e.sig["ipp-scram"] = None
+run(e, DROP)
+check("a scram pulse (one control step) still drives the rods all the way in", entry(e).rod == 0 and entry(e).tripped is True, entry(e).rod)
+run(e, 100)
+t_left = entry(e).lock_left
+e.sig["ipp-scram"] = 1; run(e, 0.2); e.sig["ipp-scram"] = None; run(e, 1)
+check("a scram signal during a lockout does not restart the timer", abs((t_left - 1.2) - entry(e).lock_left) < 1, (t_left, entry(e).lock_left))
+
+e = full_power()
+e.sig["ipp-scram"] = 1; run(e, LOCK + 30)
+check("a scram signal still present after the lockout keeps the rods in", entry(e).rod == 0 and entry(e).tripped is True)
+check("status says the signal is holding the rods", str(e.custom_status.label[1]) == "ipp.reactor-status-scram-held", e.custom_status.label[1])
+e.sig["ipp-scram"] = None; run(e, 1)
+check("removing the signal after the lockout releases the rods at once", entry(e).tripped is False)
+run(e, 10); check("... and they withdraw at normal speed", 0 < entry(e).rod < 10 * R.rod_speed + 2, entry(e).rod)
+
+e = full_power()
+e.sig["ipp-scram"] = 1; run(e, 1); e.sig["ipp-scram"] = None
+e.wired = False; run(e, 30); e.wired = True; run(e, 30)
+check("cutting and restoring the wire does not end a lockout", entry(e).rod == 0 and entry(e).tripped is True, entry(e).rod)
+
+R.scram_lockout_s = 0
+e = full_power()
+e.sig["ipp-scram"] = 1; run(e, DROP)
+check("lockout 0: the rods still go all the way in while the signal is present", entry(e).rod == 0 and entry(e).tripped is True)
+e.sig["ipp-scram"] = None; run(e, 10)
+check("lockout 0: rods are released as soon as the signal is gone", entry(e).tripped is False and entry(e).rod > 0, entry(e).rod)
+e = full_power()
+e.sig["ipp-scram"] = 1; run(e, 0.2); e.sig["ipp-scram"] = None; run(e, 1)
+check("lockout 0: after a pulse the core stays tripped while the rods are still travelling in", entry(e).tripped is True and 0 < entry(e).rod < 100, (entry(e).tripped, entry(e).rod))
+run(e, DROP + 2)
+check("lockout 0: ... and is released once they are fully in (rods start coming out again)", entry(e).tripped is False and entry(e).rod < 3 * R.rod_speed + 1, (entry(e).tripped, entry(e).rod))
+R.scram_lockout_s = LOCK
+
+print("old saves: entries without the SCRAM fields keep working")
+e = full_power(); ent = entry(e); ent.tripped = None; ent.lock_until = None; ent.lock_left = None
+run(e, 2)
+check("an entry from before the lockout existed runs normally", entry(e).tripped is not True and abs(entry(e).rod - 100) < 1e-6)
+
+print("fail-safe (no lockout)")
+e = full_power()
+e.wired = False; run(e, DROP)
 check("cutting the wire drops the rods at scram speed", entry(e).rod < 1.0, entry(e).rod)
-e = mk(); M.register(e); e.sig["ipp-rod-withdrawal"] = 100; run(e, 60)
-e.fail = True; run(e, 4.2)
-check("an error reading the connector counts as a scram", entry(e).rod < 1.0, entry(e).rod)
+check("... without starting a lockout", entry(e).tripped is not True)
+e.wired = True; run(e, 10)
+check("rods come out again at normal speed once the wire is back", 0 < entry(e).rod < 10 * R.rod_speed + 2, entry(e).rod)
+e = full_power()
+e.fail = True; run(e, DROP)
+check("an error reading the connector drops the rods", entry(e).rod < 1.0, entry(e).rod)
+check("... without starting a lockout", entry(e).tripped is not True)
+e = mk(lua.table(wired=False)); M.register(e); run(e, 5)
+check("a new unwired core is not locked out", entry(e).tripped is False)
 
 print("heat balance")
 e = mk(lua.table(sink_mw=120)); M.register(e); e.sig["ipp-rod-withdrawal"] = 100; run(e, 600)
@@ -145,20 +207,23 @@ check("rods are fully in", entry(e).rod == 0)
 t0 = e.temperature; run(e, 10)
 check("after a SCRAM the core keeps heating with no cooling", e.temperature > t0 + 1, e.temperature - t0)
 heat_rate_early = (e.temperature - t0) / 10
-t1 = e.temperature; run(e, 200); t2 = e.temperature; run(e, 10)
+t1 = e.temperature; run(e, 0.67 * R.decay_fall_s); t2 = e.temperature; run(e, 10)
 heat_rate_late = (e.temperature - t2) / 10
 check("afterheat dies away (late heating is slower than early heating)", heat_rate_late < heat_rate_early * 0.6, (heat_rate_early, heat_rate_late))
-check("afterheat is of the right size (7 % of 120 MW / 20 MJ per C = 0.42 C/s at first)", 0.3 < heat_rate_early < 0.45, heat_rate_early)
+expect_rate = R.decay_fraction * R.rated_w / R.specific_heat_j
+check("afterheat is of the right size (decay fraction x rated power / thermal mass = %.2f C/s at first)" % expect_rate, 0.9 * expect_rate < heat_rate_early < 1.05 * expect_rate, (heat_rate_early, expect_rate))
 e2 = mk(lua.table(sink_mw=0, fuel=False)); M.register(e2); e2.sig["ipp-rod-withdrawal"] = 100; run(e2, 120)
 check("a core with no fuel makes no heat and no afterheat", e2.temperature == 15 and entry(e2).decay == 0, e2.temperature)
 
 print("meltdown")
 g.DIES = 0
 e = mk(lua.table(sink_mw=0)); M.register(e); e.sig["ipp-rod-withdrawal"] = 100
-run(e, 165)     # rods need 50 s to come out (+150 C), then 6 C/s: about 855 C now
-check("heating without cooling: warning alerts are raised below the meltdown limit", g.ALERTS > 0 and e.valid and e.temperature < R.meltdown_c, (g.ALERTS, e.temperature))
+n_ = 0
+while e.valid and e.temperature < R.warning_c + 5 and n_ < 600: run(e, 1); n_ += 1    # rods come out slowly, then the core heats at full rate
+check("heating without cooling: warning alerts are raised below the meltdown limit", g.ALERTS > 0 and e.valid and e.temperature < R.meltdown_c, (g.ALERTS, e.temperature, n_))
 check("status goes red and counts down once above the meltdown temperature", True)
-run(e, 30)      # 920 C is reached at about 176 s, plus 5 s grace
+n_ = 0
+while e.valid and n_ < 120: run(e, 1); n_ += 1      # meltdown temperature, then the grace period
 check("the core explodes after the grace period", g.DIES == 1 and not e.valid, (g.DIES, e.temperature))
 check("the meltdown is announced to the force with a map link", len(g.PRINTS) == 1 and str(g.PRINTS[1][1]) == "ipp.reactor-meltdown" and str(g.PRINTS[1][2]) == "[gps=1,1]")
 check("a destroyed core is forgotten", entry(e) is None)

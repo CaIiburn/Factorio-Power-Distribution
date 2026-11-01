@@ -24,6 +24,8 @@
 --   * steam generator steam energy         may not exceed the heat it takes from the primary loop
 --   * steam_generator.steam_per_second     should equal turbines.hp.fluid_per_second
 --   * surface_condenser.exhaust_steam_per_second should equal turbines.hp.fluid_per_second
+--   * surface_condenser.water_per_second  should equal steam_generator.water_per_second (the secondary loop is closed;
+--                                          it carries secondary water, not vanilla water)
 local C = {}
 
 -- Tier 3 replaces the vanilla nuclear branch: when true the vanilla "Nuclear power" research stops unlocking the
@@ -56,7 +58,7 @@ C.turbines = {
   large_steam = { fluid_per_second = 500, effectivity = 1, output_limit_mw = nil, health = 1800, size_multiplier = 3 },
   gas         = { fluid_per_second = 100,  effectivity = 0.5,  output_limit_mw = nil, health = 1800, size_multiplier = 3 },
   -- Tier 3 high-pressure turbine train: 500 x 90 kJ x 1.0 = 45 MW
-  hp          = { fluid_per_second = 500, effectivity = 1,    output_limit_mw = nil, health = 2200, size_multiplier = 3 },
+  hp          = { fluid_per_second = 375, effectivity = 1,    output_limit_mw = nil, health = 2200, size_multiplier = 3 },
 }
 
 --------------------------------------------------------------------------------------------------
@@ -153,8 +155,13 @@ C.fuel_assembly = { energy_gj = 40, cells = 5, claddings = 4 }
 --
 -- Control rods (script, scripts/reactors.lua). The core reads two virtual signals from its circuit connector:
 --   ipp-rod-withdrawal (0..100 %)  how far the rods are pulled out. 0 = fully inserted = no fission.
---   ipp-scram          (any non-zero) drops the rods at scram speed.
--- An unwired core, or one whose wires were cut, SCRAMs by itself (fail-safe). Rods move at limited speed.
+--   ipp-scram          (any non-zero) SCRAM: the rods are driven all the way in at scram speed, even if the signal
+--                      is only a pulse, and cannot be withdrawn again for scram_lockout_s (counted from the trip). A
+--                      scram signal that is still present when the lockout ends keeps the rods in.
+-- An unwired core, or one whose wires were cut, drops its rods by itself (fail-safe, no lockout; a lockout that
+-- is already running keeps running). Rods move at limited speed.
+--   scram_lockout_s : seconds after a SCRAM before the rods may be withdrawn again (600 = 10 minutes). 0 = no
+--                     waiting, but the rods still go all the way in.
 -- Fission power = withdrawal^rod_exponent x power x (1 + neighbour bonus). The core is switched on and off
 -- every tick in the right proportion to get that average, so fuel burn follows the rods too.
 --
@@ -170,18 +177,19 @@ C.reactor = {
   power_mw                 = 120,
   neighbour_bonus          = 1,
   specific_heat_mj         = 20,
-  max_temperature_c        = 1050,
+  max_temperature_c        = 1550,
   health                   = 1500,
   fuel_slots               = 1,
   spent_slots              = 1,
   rod_speed_pct_per_second   = 1,
   scram_speed_pct_per_second = 25,
+  scram_lockout_s          = 600,
   rod_exponent             = 1,
   decay_fraction           = 0.2,
   decay_rise_s             = 60,
   decay_fall_s             = 600,
-  warning_temperature_c    = 800,
-  meltdown_temperature_c   = 1000,
+  warning_temperature_c    = 1200,
+  meltdown_temperature_c   = 1500,
   meltdown_grace_s         = 5,
 }
 
@@ -196,7 +204,7 @@ C.reactor = {
 -- Derived: units per second = power / (heat capacity 1 kJ x (target - 15 degC)) = 120 MW / 300 kJ = 400 /s.
 --------------------------------------------------------------------------------------------------
 C.primary_unit = {
-  power_mw      = 120,
+  power_mw      = 36,
   target_c      = 315,
   min_working_c = 350,
   hot_fluid_max_c = 400,
@@ -204,48 +212,51 @@ C.primary_unit = {
 }
 
 --------------------------------------------------------------------------------------------------
--- Nuclear steam generator: hot primary water + feedwater -> high-pressure steam + cool primary water.
+-- Nuclear steam generator: hot primary water + secondary water -> high-pressure steam + cool primary water.
+-- (water_per_second is the secondary-water intake; the middle loop runs on its own fluid, ipp-secondary-water.)
 -- Needs grid power for its feed pumps: without power the primary loop stops circulating and the core
 -- loses its cooling (keep a startup bank).
 --   size : square footprint in tiles, odd number >= 3 (default 5). Two pipes per face.
 --------------------------------------------------------------------------------------------------
 C.steam_generator = {
-  hot_primary_per_second  = 400,
-  cool_primary_per_second = 400,
-  water_per_second        = 500,
-  steam_per_second        = 500,
-  power_mw                = 2,
+  hot_primary_per_second  = 200,
+  cool_primary_per_second = 200,
+  water_per_second        = 250,
+  steam_per_second        = 250,
+  power_mw                = 1,
   idle_drain_kw           = 50,
   health                  = 800,
   size                    = 5,
 }
 
 --------------------------------------------------------------------------------------------------
--- Surface condenser: exhaust steam + cool cooling water -> feedwater (water) + warm cooling water.
+-- Surface condenser: exhaust steam + cool cooling water -> secondary water + warm cooling water.
+--   water_per_second is the secondary-water output.
 --   size : odd number >= 3 (default 5)
 --------------------------------------------------------------------------------------------------
 C.surface_condenser = {
-  exhaust_steam_per_second  = 500,
-  cooling_water_per_second  = 300,
-  water_per_second          = 500,
-  power_kw                  = 500,
+  exhaust_steam_per_second  = 250,
+  cooling_water_per_second  = 150,
+  water_per_second          = 250,
+  power_kw                  = 250,
   idle_drain_kw             = 20,
   health                    = 800,
   size                      = 5,
 }
 
 --------------------------------------------------------------------------------------------------
--- Heat rejection: the cooling tower evaporates a little water (makeup) but moves a lot of cooling water;
--- the dry cooler needs no water but moves less and draws much more power.
+-- Heat rejection: the cooling tower evaporates VANILLA water (makeup_per_second, 600 by default) while it moves the
+-- cooling water, so a tower has to be built next to a water supply (one offshore pump gives 1200/s). The dry cooler
+-- needs no water but moves less and draws much more power.
 --   size : odd number >= 3 (default 5)
 --------------------------------------------------------------------------------------------------
 C.cooling_tower = {
   warm_per_second   = 600,
-  makeup_per_second = 12,
+  makeup_per_second = 600,
   power_kw          = 1000,
   idle_drain_kw     = 30,
   health            = 800,
-  size              = 5,
+  size              = 9,
 }
 C.dry_cooler = {
   warm_per_second = 300,
@@ -253,6 +264,25 @@ C.dry_cooler = {
   idle_drain_kw   = 50,
   health          = 800,
   size            = 5,
+}
+
+--------------------------------------------------------------------------------------------------
+-- Water treatment plant: turns vanilla water into the closed-loop fluids. The plant has three recipes, chosen
+-- by hand in the machine: water -> primary water, water -> secondary water and water -> cooling water. The loops
+-- lose nothing in operation (the cooling tower's evaporation is paid for with its own makeup water), so the plant
+-- only fills them (and tops them up after a repair or a rebuild).
+--   primary_per_second / secondary_per_second / cooling_per_second : water in = fluid out, per second (1:1, mass is conserved)
+--   size : whole number >= 2 (default 4 = the size the oxidizer art was drawn for). One input on the north face, one
+--          output on the south face; on an even size they sit one half tile left of centre (there is no centre tile).
+--------------------------------------------------------------------------------------------------
+C.water_treatment = {
+  primary_per_second   = 200,
+  secondary_per_second = 200,
+  cooling_per_second   = 200,
+  power_kw             = 500,
+  idle_drain_kw        = 20,
+  health               = 800,
+  size                 = 4,
 }
 
 --------------------------------------------------------------------------------------------------
