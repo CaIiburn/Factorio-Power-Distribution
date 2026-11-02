@@ -89,14 +89,14 @@ lines = g.S.vent_list_lines(); check(len(lines) >= 10, "list has %d lines" % len
 print("event registration (engine rules)")
 try:
     g.S.register_events(); ids = [g.REG[i].id for i in range(1, len(g.REG)+1) if g.REG[i].id]
-    check(True, "register_events ran with strict filter rule, %d registrations" % len(g.REG))
-    needed = {"on_built_entity","on_robot_built_entity","on_space_platform_built_entity","script_raised_built","script_raised_revive","on_entity_cloned","on_player_mined_entity","on_robot_mined_entity","on_space_platform_mined_entity","on_entity_died","script_raised_destroy","on_research_finished"}
-    check(needed <= set(ids), "all lifecycle events registered individually")
-    lua.execute("""
-      local n = 0
-      for _, r in ipairs(REG) do if r.filters and #r.filters ~= 1 then n = n + 1 end end
-      BAD_FILTERS = n""")
-    check(g.BAD_FILTERS == 0, "every filtered registration has the stack-name filter")
+    check(True, "register_events ran, %d registrations" % len(g.REG))
+    check("on_research_finished" in ids, "research event registered (the stacks own it)")
+    check(any(g.REG[i].nth == 60 for i in range(1, len(g.REG)+1)), "poll on nth tick 60 (the heaters use 59: one handler per value)")
+    # build / clone / remove go through scripts/events.lua (one registration per event for the whole mod)
+    check(not (set(ids) & {"on_built_entity", "on_entity_died", "script_raised_destroy", "on_entity_cloned"}),
+          "lifecycle events are NOT registered here (scripts/events.lua registers them once)")
+    lc = g.S.lifecycle
+    check(lc.names["ipp-exhaust-stack"] is True and lc.built is not None and lc.removed is not None, "stack lifecycle table for the dispatcher")
 except Exception as ex:
     check(False, "register_events raised: %s" % ex)
 print("FAILURES" if fails else "STACK CHECKS PASSED")

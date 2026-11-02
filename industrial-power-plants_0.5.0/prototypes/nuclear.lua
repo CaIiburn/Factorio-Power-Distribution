@@ -201,14 +201,14 @@ local machines = {
 
   -- hot spent assembly + water -> cooled spent assembly after a fixed time
   { name = "ipp-spent-fuel-pool", base = "assembling-machine-3", size = sp.size, tint = U.color(0.55, 0.80, 1.00), order = "s",
-    categories = { "ipp-fuel-cooling" }, fixed_recipe = "ipp-spent-fuel-cooling", health = sp.health,
+    categories = { "ipp-fuel-cooling" }, health = sp.health,   -- no fixed recipe: Tier 4 adds spent-core cooling
     energy_source = elec(unit(sp.idle_drain_kw, "kW")), energy_usage = unit(sp.power_kw, "kW"),
     desc = { D.fmt(sp.cooling_time_s), D.fmt(sp.water_per_assembly) },
     fluid_boxes = { { kind = "input", dir = "north", lat = 0, volume = volume_for(1000, sp.water_per_assembly) } } },
 
   -- cooled assembly + acid (left) + solvent (right) -> uranium, plutonium-bearing material, residue
   { name = "ipp-reprocessing-plant", base = "centrifuge", size = rp.size, tint = U.color(0.85, 1.00, 0.70), order = "u",
-    categories = { "ipp-reprocessing" }, fixed_recipe = "ipp-spent-fuel-reprocessing", health = rp.health,
+    categories = { "ipp-reprocessing" }, health = rp.health,   -- no fixed recipe: Tier 4 adds core and blanket reprocessing
     energy_source = elec(unit(rp.idle_drain_kw, "kW")), energy_usage = unit(rp.power_mw, "MW"),
     desc = { D.fmt(rp.time_s), D.fmt(rp.acid), D.fmt(rp.solvent) },
     fluid_boxes = (function()

@@ -142,23 +142,19 @@ function M.vent_list_lines()
   return lines
 end
 
+-- Build / clone / remove events are registered once for all scripts (scripts/events.lua).
+M.lifecycle = {
+  names = { [defs.STACK] = true },
+  built = function(e) M.register(e) end,
+  removed = function(unit) M.unregister(unit) end,
+}
+
+-- Timers and research. Only one handler per event and per nth-tick value exists, so these must stay unique across scripts:
+-- stacks use nth tick 60 and on_research_finished.
 function M.register_events()
-  local filters = { { filter = "name", name = defs.STACK } }
-  local ev = defines.events
-  -- Event filters can only be attached when registering ONE event at a time (not an array).
-  local function on(events, handler)
-    for _, id in ipairs(events) do script.on_event(id, handler, filters) end
-  end
-  on({ ev.on_built_entity, ev.on_robot_built_entity, ev.on_space_platform_built_entity,
-       ev.script_raised_built, ev.script_raised_revive },
-    function(e) M.register(e.entity) end)
-  on({ ev.on_entity_cloned }, function(e) M.register(e.destination) end)
-  on({ ev.on_player_mined_entity, ev.on_robot_mined_entity, ev.on_space_platform_mined_entity,
-       ev.on_entity_died, ev.script_raised_destroy },
-    function(e) if e.entity and e.entity.unit_number then M.unregister(e.entity.unit_number) end end)
   script.on_nth_tick(POLL_TICKS, M.poll)
   -- a finished research can unlock a recipe a waiting stack needs (unfiltered event)
-  script.on_event(ev.on_research_finished, function() M.poll() end)
+  script.on_event(defines.events.on_research_finished, function() M.poll() end)
 end
 
 return M

@@ -12,14 +12,15 @@ The single source of truth is `D.vent` in `shared/defs.lua`; vent recipes are ge
 | Exhaust steam | 500 /s | Industrial steam power |
 | Flue gas | 200 /s | Combined-cycle gas power |
 | Hot exhaust (heat-recovery bypass) | 200 /s | Combined-cycle gas power |
+| CO2 (surplus from the lime kiln) | 200 /s | Sodium coolant production |
 
 ## Cannot be vented (the stack refuses and clears its recipe)
 
 | Fluid | Reason |
 |---|---|
-| Industrial steam, high-pressure steam, steam, water, secondary water, cooling water, warm cooling water | valuable working fluid: send it to its consumer |
+| Industrial steam, high-pressure steam, steam, water, secondary water, cooling water, warm cooling water, brine, compressed / preheated / hot / exhaust CO2 | valuable working fluid: send it to its consumer |
 | Fuel gas, petroleum gas, light oil, heavy oil, crude oil | fuel: burn it instead |
-| Lubricant, sulfuric acid, primary water, hot primary water, reprocessing solvent | hazardous (the primary water is radioactive): not allowed to be released |
+| Lubricant, sulfuric acid, primary water, hot primary water, reprocessing solvent, primary and secondary sodium (hot or cool), chlorine | hazardous (the primary water and primary sodium are radioactive): not allowed to be released |
 | Anything else (including other mods' fluids) | not on the vent list |
 
 If the connected pipe holds several fluids, a ventable fluid wins over a refused one.

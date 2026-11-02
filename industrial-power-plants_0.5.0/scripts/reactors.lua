@@ -1,4 +1,4 @@
--- Pressurized-water reactor core: control rods, decay heat and meltdown.
+-- Reactor cores (pressurized-water and fast-breeder): control rods, decay heat and meltdown.
 --
 -- The core is a vanilla `reactor` prototype, so its heat buffer, temperature, neighbour bonus and the heat taken
 -- away by the primary circulation units are all native. This script adds three things:
@@ -23,7 +23,12 @@
 --      above meltdown_temperature_c for meltdown_grace_s (or at the maximum at once) the core is killed; the vanilla
 --      meltdown_action then produces the standard reactor explosion (it fires above 90 % of max temperature).
 local defs = require("shared.defs")
-local R = defs.reactor
+
+-- One script drives every core type (Tier 3 pressurized-water core, Tier 4 fast-breeder core). The constants of a core are
+-- looked up by its entity name on every step (never stored in `storage`), so a config edit needs no migration.
+local function params(e)
+  return defs.reactors[e.name] or defs.reactor
+end
 
 local M = {}
 local CTRL_TICKS  = 6            -- control update period per core (staggered by unit number)
@@ -75,12 +80,15 @@ local function has_fuel(e)
   return inv ~= nil and not inv.is_empty()
 end
 
+M.has_fuel = has_fuel
+
 local function neighbour_multiplier(e)
   return 1 + (e.neighbour_bonus or 0)
 end
 
 local function set_status(entry, fueled)
   local e = entry.entity
+  local R = params(e)
   local diode = defines.entity_status_diode
   local T = entry.temp or 0
   local mult = neighbour_multiplier(e)
@@ -125,6 +133,7 @@ end
 -- One control step (every CTRL_TICKS): read signals, move the rods, add afterheat, watch the temperature.
 function M.control(entry, tick)
   local e = entry.entity
+  local R = params(e)
   local set, scram, wired = M.read_signals(e)
   -- read_signals reports "no wire / unreadable" as scram = true (fail-safe); only a real signal trips the core
   local signal = scram and wired
@@ -193,23 +202,28 @@ function M.pwm(entry)
   end
 end
 
+-- Other scripts that need the (single) on_tick event register here: M.hooks[#M.hooks + 1] = function(event) ... end
+M.hooks = {}
+
 function M.on_tick(event)
   local list = reactors()
-  if next(list) == nil then return end
-  local tick = event.tick
-  for unit, entry in pairs(list) do
-    if not entry.entity.valid then
-      list[unit] = nil
-    else
-      if (tick + entry.offset) % CTRL_TICKS == 0 then M.control(entry, tick) end
-      if list[unit] then M.pwm(entry) end   -- the control step may have destroyed the core
+  if next(list) ~= nil then
+    local tick = event.tick
+    for unit, entry in pairs(list) do
+      if not entry.entity.valid then
+        list[unit] = nil
+      else
+        if (tick + entry.offset) % CTRL_TICKS == 0 then M.control(entry, tick) end
+        if list[unit] then M.pwm(entry) end   -- the control step may have destroyed the core
+      end
     end
   end
+  for _, hook in ipairs(M.hooks) do hook(event) end
 end
 
 -- A new (or cloned, or revived) core starts with its rods fully inserted.
 function M.register(e)
-  if not (e and e.valid and e.name == defs.REACTOR and e.unit_number) then return end
+  if not (e and e.valid and defs.reactors[e.name] and e.unit_number) then return end
   local list = reactors()
   local entry = list[e.unit_number]
   if entry then entry.entity = e; return end
@@ -229,7 +243,7 @@ end
 
 function M.rescan()
   for _, surface in pairs(game.surfaces) do
-    for _, e in pairs(surface.find_entities_filtered { name = defs.REACTOR }) do M.register(e) end
+    for _, e in pairs(surface.find_entities_filtered { name = { defs.REACTOR, defs.FBR } }) do M.register(e) end
   end
 end
 
@@ -240,31 +254,26 @@ function M.debug_lines()
     local e = entry.entity
     if e.valid then
       lines[#lines + 1] = string.format(
-        "%s  rods %.1f%% (set %.0f%%)  duty %.3f  T %.1f C  neighbour_bonus %s  decay %.4f  active %s  wired %s  scram %s  tripped %s  lockout left %s  fuel %s",
-        e.gps_tag, entry.rod, entry.setpoint, entry.duty, e.temperature or -1, tostring(e.neighbour_bonus),
+        "%s %s  rods %.1f%% (set %.0f%%)  duty %.3f  T %.1f C  neighbour_bonus %s  decay %.4f  active %s  wired %s  scram %s  tripped %s  lockout left %s  fuel %s",
+        e.gps_tag, e.name, entry.rod, entry.setpoint, entry.duty, e.temperature or -1, tostring(e.neighbour_bonus),
         entry.decay, tostring(e.active), tostring(entry.wired), tostring(entry.scram), tostring(entry.tripped == true),
         mmss(entry.lock_left or 0), tostring(has_fuel(e)))
     end
   end
-  if #lines == 0 then lines[1] = "no pressurized-water reactor cores" end
+  if #lines == 0 then lines[1] = "no reactor cores" end
   return lines
 end
 
+-- Build / clone / remove events are registered once for all scripts (scripts/events.lua).
+M.lifecycle = {
+  names = { [defs.REACTOR] = true, [defs.FBR] = true },
+  built = function(e) M.register(e) end,
+  removed = function(unit) M.unregister(unit) end,
+}
+
+-- The single on_tick handler of the mod (other scripts ride on it through M.hooks).
 function M.register_events()
-  local filters = { { filter = "name", name = defs.REACTOR } }
-  local ev = defines.events
-  -- Event filters can only be attached when registering ONE event at a time (not an array).
-  local function on(events, handler)
-    for _, id in ipairs(events) do script.on_event(id, handler, filters) end
-  end
-  on({ ev.on_built_entity, ev.on_robot_built_entity, ev.on_space_platform_built_entity,
-       ev.script_raised_built, ev.script_raised_revive },
-    function(e) M.register(e.entity) end)
-  on({ ev.on_entity_cloned }, function(e) M.register(e.destination) end)
-  on({ ev.on_player_mined_entity, ev.on_robot_mined_entity, ev.on_space_platform_mined_entity,
-       ev.on_entity_died, ev.script_raised_destroy },
-    function(e) if e.entity and e.entity.unit_number then M.unregister(e.entity.unit_number) end end)
-  script.on_event(ev.on_tick, M.on_tick)
+  script.on_event(defines.events.on_tick, M.on_tick)
 end
 
 return M

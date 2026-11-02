@@ -74,13 +74,13 @@ raw["fusion-generator"] = { ["fusion-generator"] = { type="fusion-generator", na
 raw.accumulator = { accumulator = { type="accumulator", name="accumulator", energy_source={}, collision_box={{-.9,-.9},{.9,.9}},
   chargable_graphics = { picture = sprite("acc.png"), charge_animation = sprite("c.png") }, water_reflection = { pictures = sprite("r.png") } } }
 raw.item, raw.fluid, raw.technology, raw.recipe = {}, {}, {}, {}
-for _, n in ipairs{"fusion-generator","steel-chest","electric-engine-unit","pump","copper-cable","iron-gear-wheel","heat-pipe","stone-brick","steel-plate","storage-tank","plastic-bar","advanced-circuit","engine-unit","coal","stone","accumulator","iron-plate","copper-plate","pipe","electronic-circuit","sulfur","battery","iron-ore","concrete","nuclear-reactor","heat-exchanger","uranium-fuel-cell","depleted-uranium-fuel-cell","uranium-235","uranium-238","barrel"} do
+for _, n in ipairs{"fusion-generator","steel-chest","electric-engine-unit","pump","copper-cable","iron-gear-wheel","heat-pipe","stone-brick","steel-plate","storage-tank","plastic-bar","advanced-circuit","engine-unit","coal","stone","accumulator","iron-plate","copper-plate","pipe","electronic-circuit","sulfur","battery","iron-ore","concrete","nuclear-reactor","heat-exchanger","uranium-fuel-cell","depleted-uranium-fuel-cell","uranium-235","uranium-238","barrel","processing-unit","iron-stick"} do
   raw.item[n] = { type="item", name=n, icon="__base__/graphics/icons/"..n..".png", icon_size=64 }
 end
 VANILLA_ITEMS = {}; for k in pairs(raw.item) do VANILLA_ITEMS[k] = true end
 
 for _, n in ipairs{"steam","petroleum-gas","water","lubricant","light-oil","sulfuric-acid"} do raw.fluid[n] = { type="fluid", name=n, icon="f.png", icon_size=64 } end
-for _, n in ipairs{"steel-processing","oil-processing","battery","logistic-science-pack","chemical-science-pack","plastics","nuclear-power","nuclear-fuel-reprocessing","sulfur-processing"} do
+for _, n in ipairs{"steel-processing","oil-processing","battery","logistic-science-pack","chemical-science-pack","plastics","nuclear-power","nuclear-fuel-reprocessing","sulfur-processing","kovarex-enrichment-process"} do
   raw.technology[n] = { type="technology", name=n, icon="t.png", icon_size=256 } end
 
 local function conn(d, x, y) return { location = { position = {x, y}, direction = d }, category = "nuclear-reactor", neighbour_category = {"nuclear-reactor"} } end
@@ -103,6 +103,13 @@ raw.container = { ["steel-chest"] = { type="container", name="steel-chest", mina
   inventory_size=48, collision_box={{-0.35,-0.35},{0.35,0.35}}, selection_box={{-0.5,-0.5},{0.5,0.5}},
   picture = { layers = { sprite("c.png"), { filename="cs.png", width=10, height=10, draw_as_shadow=true } } },
   circuit_connector = { { points = { wire = { red = {0.4, 0.1} }, shadow = { red = {0.5, 0.2} } }, sprites = { connector_main = { filename = "cc.png", shift = {0.4, 0.1} } } } } } }
+raw["storage-tank"] = { ["storage-tank"] = { type="storage-tank", name="storage-tank", minable={result="storage-tank"}, fast_replaceable_group="storage-tank", max_health=500,
+  fluid_box = { volume=25000, pipe_connections={{direction=0,position={-1,-1}},{direction=4,position={1,1}}} }, flow_length_in_ticks=360,
+  collision_box={{-1.35,-1.35},{1.35,1.35}}, selection_box={{-1.5,-1.5},{1.5,1.5}},
+  pictures = { picture = { sheets = { sprite("tank.png"), { filename="tank-s.png", width=10, height=10, draw_as_shadow=true } } }, window_background = sprite("wb.png") } } }
+raw["heat-pipe"] = { ["heat-pipe"] = { type="heat-pipe", name="heat-pipe", minable={result="heat-pipe"}, fast_replaceable_group="heat-pipe", max_health=200,
+  heat_buffer = { max_temperature=1000, specific_heat="1MJ", max_transfer="1GW", connections={{position={0,0},direction=0}} },
+  connection_sprites = { single = { sprite("hp.png") } }, heat_glow_sprites = { single = { sprite("hpg.png") } } } }
 raw["virtual-signal"], raw["fuel-category"] = {}, {}
 raw.technology["nuclear-power"].effects = {
   { type="unlock-recipe", recipe="nuclear-reactor" }, { type="unlock-recipe", recipe="heat-exchanger" }, { type="unlock-recipe", recipe="heat-pipe" },
@@ -560,7 +567,7 @@ if V.denied["ipp-secondary-water"] != "valuable" or "ipp-secondary-water" in all
 # nothing but the pool, the tower and the plant may still take vanilla water in tier 3
 for rn_ in recipes.keys():
     if not any(c in ("ipp-steam-generation", "ipp-surface-condensing", "ipp-evaporative-cooling", "ipp-dry-cooling", "ipp-fuel-cooling", "ipp-water-treatment") for c in rcats(recipes[rn_])): continue
-    if amt(recipes[rn_], 'in', 'water') is not None and rn_ not in ("ipp-cooling-tower-cycle", "ipp-spent-fuel-cooling", "ipp-primary-water-treatment", "ipp-secondary-water-treatment", "ipp-cooling-water-treatment"):
+    if amt(recipes[rn_], 'in', 'water') is not None and rn_ not in ("ipp-cooling-tower-cycle", "ipp-spent-fuel-cooling", "ipp-spent-core-cooling", "ipp-primary-water-treatment", "ipp-secondary-water-treatment", "ipp-cooling-water-treatment"):
         errs.append(rn_ + ": unexpected vanilla water input")
 print("water treatment: %.0f water/s -> primary water, %.0f -> secondary water, %.0f -> cooling water; tower evaporates %.0f water/s" % (wtc.primary_per_second, wtc.secondary_per_second, wtc.cooling_per_second, CF.cooling_tower.makeup_per_second))
 # vanilla replacement
@@ -591,6 +598,279 @@ for rn in recipes.keys():
         if arr is None: continue
         for i in range(1, len(arr)+1):
             if arr[i].probability is not None: errs.append("%s: %s %s uses the removed 'probability' field" % (rn, key, arr[i].name))
+
+
+# =====================================================================================================================
+# TIER 4: fast breeder with supercritical CO2 generation
+# =====================================================================================================================
+print("== tier 4 ==")
+T4 = ("ipp-sodium-coolant-production", "ipp-fast-breeder-power")
+FBc, SUc, SEc, CHc, CPc, RCc, CLc = CF.fast_breeder, CF.sodium_unit, CF.sodium_exchanger, CF.co2_heater, CF.sco2_compressor, CF.recuperator, CF.sco2_cooler
+BFc, ELc, SCc4 = CF.breeder_fuel, CF.electrolyzer, CF.sodium_chemistry
+H_MJ, R_MJ = CF.fluids.sco2_hot_mj, CF.fluids.sco2_recuperated_mj
+tb = raw["fusion-generator"]["ipp-sco2-turbine-generator"]
+
+# --- buildings in the plan table exist, are researched, and are the right kind of prototype
+for b in ("ipp-fast-breeder-reactor", "ipp-intermediate-sodium-exchanger", "ipp-sodium-co2-heater", "ipp-sco2-compressor", "ipp-sco2-turbine-generator",
+          "ipp-recuperator", "ipp-sco2-cooler", "ipp-shielded-fuel-fabricator", "ipp-sodium-electrolyzer", "ipp-hot-fluid-tank",
+          "ipp-sodium-circulation-unit", "ipp-blanket-channel"):
+    if b not in items: errs.append(b + ": no item")
+    elif b not in unlocked or unlocked[b][0] not in T4: errs.append(b + ": not unlocked by a tier 4 research")
+    if b not in recipes or recipes[b].ingredients is None: errs.append(b + ": no building recipe")
+# the plan's crafting components, per building
+plan = {
+  "ipp-fast-breeder-reactor": ["ipp-structural-frame", "ipp-refractory-alloy", "ipp-nuclear-shielding", "ipp-control-rod-assembly", "ipp-radhard-controller"],
+  "ipp-intermediate-sodium-exchanger": ["ipp-refractory-alloy", "ipp-heat-exchanger-panel", "ipp-ceramic-seal", "ipp-nuclear-shielding"],
+  "ipp-sodium-co2-heater": ["ipp-pressure-vessel", "ipp-refractory-alloy", "ipp-heat-exchanger-panel", "ipp-ceramic-seal"],
+  "ipp-sco2-compressor": ["ipp-precision-rotor", "ipp-pressure-vessel", "ipp-electric-motor", "ipp-seal-pack", "processing-unit"],
+  "ipp-sco2-turbine-generator": ["ipp-refractory-rotor", "ipp-generator-winding", "ipp-pressure-housing", "processing-unit"],
+  "ipp-recuperator": ["ipp-recuperator-matrix", "ipp-pressure-vessel", "ipp-ceramic-seal"],
+  "ipp-sco2-cooler": ["ipp-heat-exchanger-panel", "ipp-pressure-vessel", "ipp-pump-assembly"],
+  "ipp-shielded-fuel-fabricator": ["ipp-nuclear-shielding", "ipp-handling-machinery", "ipp-refractory-alloy", "ipp-radhard-controller"],
+  "ipp-sodium-electrolyzer": ["ipp-refractory-lining", "ipp-electrode-assembly", "ipp-pressure-vessel", "ipp-control-cabinet"],
+  "ipp-hot-fluid-tank": ["ipp-pressure-vessel", "ipp-refractory-lining", "ipp-thermal-insulation", "ipp-pump-assembly"],
+}
+for b, comps in plan.items():
+    for c in comps:
+        if amt(recipes[b], 'in', c) is None: errs.append("%s: plan component %s missing from its recipe" % (b, c))
+for c in ("ipp-refractory-alloy", "ipp-ceramic-seal", "ipp-precision-rotor", "ipp-refractory-rotor", "ipp-pressure-housing", "ipp-recuperator-matrix",
+          "ipp-handling-machinery", "ipp-electrode-assembly", "ipp-thermal-insulation"):
+    if c not in items or c not in recipes: errs.append(c + ": new component missing")
+# every plan component is made from something that exists (no recipe loop): refractory alloy / rotors build on tier 3 parts
+for c in ("ipp-refractory-rotor", "ipp-pressure-housing", "ipp-recuperator-matrix"):
+    if amt(recipes[c], 'in', "ipp-refractory-alloy") is None: errs.append(c + ": should use refractory alloy")
+
+# --- reactor core: vanilla reactor prototype, own fuel + neighbour category, config numbers
+fbr = raw.reactor["ipp-fast-breeder-reactor"]
+if str(fbr.consumption) != "%.6gMW" % FBc.power_mw: errs.append("breeder core power != config")
+if fbr.neighbour_bonus != FBc.neighbour_bonus: errs.append("breeder neighbour bonus != config")
+if fbr.neighbour_bonus != 1 or raw.reactor["nuclear-reactor"].neighbour_bonus != 1: errs.append("neighbour bonus must be like vanilla nuclear (1)")
+if fbr.energy_source.fuel_categories[1] != "ipp-fast-fuel" or len(fbr.energy_source.fuel_categories) != 1: errs.append("breeder core must burn only the fast-fuel category")
+if raw.reactor["ipp-pwr-reactor-core"].energy_source.fuel_categories[1] == "ipp-fast-fuel": errs.append("the tier 3 core must not burn fast fuel")
+if fbr.energy_source.fuel_inventory_size != FBc.fuel_slots or fbr.energy_source.burnt_inventory_size != FBc.spent_slots: errs.append("breeder core slots != config")
+for i in range(1, len(fbr.neighbour_connectable.connections) + 1):
+    c = fbr.neighbour_connectable.connections[i]
+    if c.category != "ipp-fbr-reactor" or c.neighbour_category[1] != "ipp-fbr-reactor" or len(c.neighbour_category) != 1: errs.append("breeder core neighbour category must be its own")
+if fbr.heat_buffer.max_temperature != FBc.max_temperature_c or str(fbr.heat_buffer.specific_heat) != "%.6gMJ" % FBc.specific_heat_mj: errs.append("breeder core heat buffer != config")
+if fbr.max_health != FBc.health: errs.append("breeder core health != config")
+core_heat_mw = FBc.power_mw
+print("breeder core: %.0f MW, %.0f MJ/C, +%.0f%% per neighbouring core" % (FBc.power_mw, FBc.specific_heat_mj, FBc.neighbour_bonus * 100))
+for k in ("ipp-mox-assembly", "ipp-starter-assembly"):
+    it_ = raw.item[k]
+    if it_.fuel_categories[1] != "ipp-fast-fuel" or it_.burnt_result != "ipp-spent-core-assembly": errs.append(k + ": fuel category / burnt result")
+    if abs(float(str(it_.fuel_value).replace("GJ", "")) - D.fuel.mox_gj) > 1e-9: errs.append(k + ": fuel value != burnt fissile x GJ per fissile")
+for k in ("ipp-blanket-assembly", "ipp-bred-blanket-assembly", "ipp-spent-core-assembly", "ipp-spent-core-assembly-cooled"):
+    if raw.item[k].fuel_value is not None or raw.item[k].fuel_categories is not None: errs.append(k + " must not be burnable")
+if raw.item["ipp-spent-core-assembly"].burnt_result is not None: errs.append("spent core assembly must not burn on")
+
+# --- Heat pipe II and the breeder core's temperature limits
+hp2, hp1 = raw["heat-pipe"]["ipp-heat-pipe-2"], raw["heat-pipe"]["heat-pipe"]
+HPc = CF.heat_pipe_2
+if hp2.heat_buffer.max_temperature != HPc.max_temperature_c or HPc.max_temperature_c != 2000: errs.append("heat pipe II must withstand 2000 C")
+if hp1.heat_buffer.max_temperature != 1000: errs.append("the vanilla heat pipe must stay untouched")
+if hp2.heat_buffer.specific_heat != hp1.heat_buffer.specific_heat or hp2.heat_buffer.max_transfer != hp1.heat_buffer.max_transfer: errs.append("heat pipe II conducts like the vanilla pipe")
+if hp2.fast_replaceable_group != hp1.fast_replaceable_group: errs.append("heat pipe II must be fast-replaceable with the vanilla pipe")
+if raw.item["ipp-heat-pipe-2"].place_result != "ipp-heat-pipe-2": errs.append("heat pipe II item")
+if amt(recipes["ipp-heat-pipe-2"], 'in', "heat-pipe") != 1: errs.append("heat pipe II is an upgrade of the vanilla pipe")
+if FBc.warning_temperature_c != 2100 or FBc.meltdown_temperature_c != 2500: errs.append("breeder core warning / explosion must be 2100 / 2500")
+if not HPc.max_temperature_c < FBc.warning_temperature_c < FBc.meltdown_temperature_c <= FBc.max_temperature_c: errs.append("pipe limit < warning < explosion <= core buffer")
+if raw.boiler["ipp-sodium-circulation-unit"].energy_source.max_temperature != HPc.max_temperature_c: errs.append("the circulation unit would cap a heat pipe II network")
+
+# --- sodium circulation unit (primary loop heat exchanger)
+cu = raw.boiler["ipp-sodium-circulation-unit"]
+if cu.target_temperature != SUc.target_c or str(cu.energy_consumption) != "%.6gMW" % SUc.power_mw or cu.energy_source.min_working_temperature != SUc.min_working_c: errs.append("circulation unit != config")
+if cu.fluid_box.filter != "ipp-primary-sodium" or cu.output_fluid_box.filter != "ipp-primary-sodium-hot": errs.append("circulation unit fluids")
+if raw.fluid["ipp-primary-sodium-hot"].max_temperature < SUc.target_c: errs.append("hot primary sodium cannot reach the target temperature")
+for f in ("ipp-primary-sodium", "ipp-primary-sodium-hot"):
+    if raw.fluid[f].heat_capacity != "1kJ": errs.append(f + ": heat capacity must be 1 kJ (a unit carries target - 15 kJ)")
+for f in ("ipp-secondary-sodium", "ipp-secondary-sodium-hot", "ipp-co2", "ipp-sco2", "ipp-sco2-warm", "ipp-sco2-exhaust", "ipp-chlorine", "ipp-brine"):
+    if raw.fluid[f].max_temperature is not None and raw.fluid[f].max_temperature != raw.fluid[f].default_temperature: errs.append(f + ": must have no temperature range (only the circulation unit stamps one)")
+if raw.fluid["ipp-sco2-hot"].fuel_value is None or abs(float(str(raw.fluid["ipp-sco2-hot"].fuel_value).replace("MJ", "")) - H_MJ) > 1e-9: errs.append("hot CO2 fuel value != config")
+for f in ("ipp-co2", "ipp-sco2", "ipp-sco2-warm", "ipp-sco2-exhaust", "ipp-primary-sodium", "ipp-secondary-sodium"):
+    if raw.fluid[f].fuel_value is not None: errs.append(f + " must not be a fuel")
+
+# --- energy accounting of the two sodium loops and the CO2 loop (MW)
+ex = recipes["ipp-sodium-heat-exchange"]
+if amt(ex, 'in', "ipp-primary-sodium-hot") != amt(ex, 'out', "ipp-primary-sodium"): errs.append("exchanger: primary loop gains or loses sodium")
+if amt(ex, 'in', "ipp-secondary-sodium") != amt(ex, 'out', "ipp-secondary-sodium-hot"): errs.append("exchanger: secondary loop gains or loses sodium")
+heat_primary = amt(ex, 'in', "ipp-primary-sodium-hot") * D.SODIUM_UNIT_KJ / 1000
+heat_secondary = amt(ex, 'out', "ipp-secondary-sodium-hot") * D.SODIUM_UNIT_KJ / 1000
+if heat_secondary > heat_primary + 1e-9: errs.append("exchanger creates heat")
+if abs(heat_primary - FBc.power_mw) > 1e-9: errs.append("one exchanger must carry the heat of one core (%.1f vs %.1f MW)" % (heat_primary, FBc.power_mw))
+if abs(SEc.hot_primary_per_second - 3 * D.SODIUM_FLOW) > 1e-9: errs.append("one exchanger != three circulation units")
+hw, hd = recipes["ipp-co2-heating-recuperated"], recipes["ipp-co2-heating-direct"]
+for r_, feed in ((hw, "ipp-sco2-warm"), (hd, "ipp-sco2")):
+    if amt(r_, 'in', "ipp-secondary-sodium-hot") != amt(r_, 'out', "ipp-secondary-sodium"): errs.append(r_.name + ": secondary loop gains or loses sodium")
+    if amt(r_, 'in', feed) != amt(r_, 'out', "ipp-sco2-hot"): errs.append(r_.name + ": CO2 gained or lost")
+    if amt(r_, 'in', "ipp-secondary-sodium-hot") != amt(ex, 'in', "ipp-secondary-sodium"): errs.append(r_.name + ": sodium flow != exchanger flow")
+heat_in = amt(hw, 'in', "ipp-secondary-sodium-hot") * D.SODIUM_UNIT_KJ / 1000
+added_w = amt(hw, 'out', "ipp-sco2-hot") * (H_MJ - R_MJ)
+added_d = amt(hd, 'out', "ipp-sco2-hot") * H_MJ
+if added_w > heat_in + 1e-9 or added_d > heat_in + 1e-9: errs.append("heater makes more hot CO2 energy than the sodium brings")
+if abs(added_w - added_d) > 1e-9: errs.append("the heater's two recipes must use the same heat")
+if amt(hw, 'out', "ipp-sco2-hot") != tb.max_fluid_usage * 60 and abs(amt(hw, 'out', "ipp-sco2-hot") - CF.turbines.sco2.fluid_per_second) > 1e-9: errs.append("recuperated heater output != turbine intake")
+if amt(hd, 'out', "ipp-sco2-hot") >= amt(hw, 'out', "ipp-sco2-hot"): errs.append("direct feed must yield less hot CO2")
+turb_mw = CF.turbines.sco2.fluid_per_second * H_MJ * CF.turbines.sco2.effectivity
+turb_mw_direct = amt(hd, 'out', "ipp-sco2-hot") * H_MJ * CF.turbines.sco2.effectivity
+comp_mw, cool_mw = CPc.power_mw, CLc.power_mw
+net = turb_mw - comp_mw - cool_mw - SEc.power_mw - CHc.power_kw / 1000 - RCc.power_kw / 1000
+eff_w, eff_d = turb_mw / added_w, turb_mw_direct / added_d
+print("CO2 plant: %.0f MW of sodium heat -> %.0f MW gross (%.0f%% with recuperator), %.0f MW gross without (%.0f%%); heat per electric MW x%.2f without; own use %.1f MW, net %.1f MW" %
+      (added_w, turb_mw, eff_w * 100, turb_mw_direct, eff_d * 100, eff_w / eff_d, comp_mw + cool_mw + SEc.power_mw + CHc.power_kw / 1000 + RCc.power_kw / 1000, net))
+if eff_w / eff_d < 1.5: errs.append("removing the recuperator must substantially increase the heat demand (x%.2f)" % (eff_w / eff_d))
+if not 0.4 <= eff_w <= 0.6: errs.append("rated efficiency should be around 50%%, is %.0f%%" % (eff_w * 100))
+t3_eff = steam_mw / heat_mw   # tier 3: steam energy per primary heat (the turbine train then converts it 1:1)
+if eff_w <= t3_eff: errs.append("tier 4 must beat the tier 3 cycle efficiency (%.0f%% vs %.0f%%)" % (eff_w * 100, t3_eff * 100))
+rcp = recipes["ipp-sco2-recuperation"]
+if amt(rcp, 'in', "ipp-sco2-exhaust") != amt(rcp, 'out', "ipp-sco2-exhaust") or amt(rcp, 'in', "ipp-sco2") != amt(rcp, 'out', "ipp-sco2-warm"): errs.append("recuperator gains or loses CO2")
+returned = amt(rcp, 'out', "ipp-sco2-warm") * R_MJ
+exhaust_heat = amt(rcp, 'in', "ipp-sco2-exhaust") * (1 - CF.turbines.sco2.effectivity) * H_MJ
+if returned > exhaust_heat + 1e-9: errs.append("recuperator returns %.1f MW, the exhaust only holds %.1f MW" % (returned, exhaust_heat))
+for rn_, a, b in (("ipp-sco2-compression", "ipp-co2", "ipp-sco2"), ("ipp-sco2-cooling", "ipp-sco2-exhaust", "ipp-co2")):
+    if amt(recipes[rn_], 'in', a) != amt(recipes[rn_], 'out', b) or amt(recipes[rn_], 'in', a) != CF.turbines.sco2.fluid_per_second: errs.append(rn_ + ": CO2 flow != turbine flow")
+print("recuperator: returns %.0f of the %.0f MW the exhaust holds (%.0f%%)" % (returned, exhaust_heat, returned / exhaust_heat * 100))
+if tb.max_fluid_usage is not None and abs(tb.max_fluid_usage * 60 - CF.turbines.sco2.fluid_per_second) > 1e-6: errs.append("turbine max fluid usage != config")
+if tb.burns_fluid is not True: errs.append("CO2 turbine must burn hot CO2 as fuel")
+if tb.input_fluid_box.filter != "ipp-sco2-hot" or tb.output_fluid_box.filter != "ipp-sco2-exhaust": errs.append("CO2 turbine fluids")
+# machine volumes hold the flow, the heater has no fixed recipe (the script picks it), the others do
+for n_, rn_ in (("ipp-intermediate-sodium-exchanger", "ipp-sodium-heat-exchange"), ("ipp-sco2-compressor", "ipp-sco2-compression"),
+               ("ipp-recuperator", "ipp-sco2-recuperation"), ("ipp-sco2-cooler", "ipp-sco2-cooling"), ("ipp-blanket-channel", "ipp-blanket-irradiation")):
+    if am[n_].fixed_recipe != rn_: errs.append(n_ + ": fixed recipe")
+if am["ipp-sodium-co2-heater"].fixed_recipe is not None: errs.append("the heater must not have a fixed recipe (its script picks one)")
+if am["ipp-sodium-electrolyzer"].fixed_recipe is not None or am["ipp-shielded-fuel-fabricator"].fixed_recipe is not None: errs.append("electrolyzer / fabricator pick their recipe by hand")
+if am["ipp-spent-fuel-pool"].fixed_recipe is not None or am["ipp-reprocessing-plant"].fixed_recipe is not None: errs.append("the shared tier 3 pool / reprocessing plant must take tier 4 recipes")
+for n_, want in (("ipp-intermediate-sodium-exchanger", SEc.size), ("ipp-sodium-co2-heater", CHc.size), ("ipp-sco2-compressor", CPc.size), ("ipp-recuperator", RCc.size),
+                 ("ipp-sco2-cooler", CLc.size), ("ipp-shielded-fuel-fabricator", CF.fuel_fabricator.size), ("ipp-sodium-electrolyzer", ELc.size), ("ipp-blanket-channel", CF.blanket_channel.size)):
+    if side(am[n_].selection_box) != (want, want): errs.append("%s footprint != configured %d" % (n_, want))
+if am["ipp-blanket-channel"].energy_source.type != "void": errs.append("blanket channel needs no power")
+if raw["storage-tank"]["ipp-hot-fluid-tank"].fluid_box.volume != CF.hot_tank.capacity or raw["storage-tank"]["ipp-hot-fluid-tank"].fluid_box.filter is not None: errs.append("hot-fluid tank != config")
+# the exchanger / heater / cooler / compressor need grid power: the loop stops without it (decay heat then needs the startup bank)
+for n_ in ("ipp-intermediate-sodium-exchanger", "ipp-sodium-co2-heater", "ipp-sco2-compressor", "ipp-recuperator", "ipp-sco2-cooler", "ipp-sodium-electrolyzer", "ipp-shielded-fuel-fabricator"):
+    if am[n_].energy_source.type != "electric" or am[n_].energy_source.drain is None: errs.append(n_ + ": needs an electric source with an idle drain")
+
+# --- sodium: two loops that cannot be mixed up; coolant manufacture; chlorine has a way out the moment sodium unlocks
+for e_ in ("ipp-primary-sodium-electrolysis", "ipp-secondary-sodium-electrolysis"):
+    r_ = recipes[e_]
+    if amt(r_, 'in', "ipp-dry-sodium-salt") != ELc.salt or amt(r_, 'out', "ipp-chlorine") != ELc.chlorine: errs.append(e_ + " != config")
+    if r_.energy_required != ELc.time_s: errs.append(e_ + ": time != config")
+if amt(recipes["ipp-primary-sodium-electrolysis"], 'out', "ipp-primary-sodium") != ELc.sodium or amt(recipes["ipp-secondary-sodium-electrolysis"], 'out', "ipp-secondary-sodium") != ELc.sodium: errs.append("electrolysis sodium amount")
+# fluid isolation: primary sodium is only in the primary loop machines, its electrolysis recipe and nowhere else
+for f in ("ipp-primary-sodium", "ipp-primary-sodium-hot"):
+    for rn_ in recipes.keys():
+        if (amt(recipes[rn_], 'in', f) is not None or amt(recipes[rn_], 'out', f) is not None) and rn_ not in ("ipp-sodium-heat-exchange", "ipp-primary-sodium-electrolysis"): errs.append("%s appears in %s" % (f, rn_))
+for f in ("ipp-secondary-sodium", "ipp-secondary-sodium-hot"):
+    for rn_ in recipes.keys():
+        if (amt(recipes[rn_], 'in', f) is not None or amt(recipes[rn_], 'out', f) is not None) and rn_ not in ("ipp-sodium-heat-exchange", "ipp-secondary-sodium-electrolysis", "ipp-co2-heating-recuperated", "ipp-co2-heating-direct"): errs.append("%s appears in %s" % (f, rn_))
+# chain: water + stone -> brine -> dry salt -> sodium + chlorine ; stone -> lime + CO2
+chain = (("ipp-brine-preparation", "ipp-brine"), ("ipp-sodium-salt-drying", "ipp-dry-sodium-salt"), ("ipp-lime-kiln", "ipp-lime"))
+for rn_, out_ in chain:
+    if rn_ not in recipes or amt(recipes[rn_], 'out', out_) is None: errs.append(rn_ + ": missing or wrong product")
+    elif "chemistry" not in rcats(recipes[rn_]): errs.append(rn_ + ": vanilla chemical plant recipe")
+if amt(recipes["ipp-sodium-salt-drying"], 'in', "ipp-brine") is None or amt(recipes["ipp-brine-preparation"], 'in', "stone") is None: errs.append("brine chain inputs")
+if amt(recipes["ipp-lime-kiln"], 'out', "ipp-co2") is None: errs.append("the kiln must make the working CO2")
+# chlorine: neutralisation and a chemical use, both unlocked together with the electrolysis
+chl_users = [rn_ for rn_ in recipes.keys() if amt(recipes[rn_], 'in', "ipp-chlorine") is not None]
+if sorted(chl_users) != ["ipp-chlorinated-plastic", "ipp-chlorine-neutralization"]: errs.append("chlorine routes: %s" % chl_users)
+nz = recipes["ipp-chlorine-neutralization"]
+if nz.results is not None and len(nz.results) > 0: errs.append("neutralisation leaves nothing behind")
+if amt(nz, 'in', "ipp-lime") is None: errs.append("neutralisation uses lime")
+if amt(recipes["ipp-chlorinated-plastic"], 'out', "plastic-bar") <= 2 * amt(recipes["ipp-chlorinated-plastic"], 'in', "coal"): errs.append("chlorinated plastic should beat plain plastic")
+for rn_ in chl_users + ["ipp-primary-sodium-electrolysis", "ipp-secondary-sodium-electrolysis"]:
+    if unlocked[rn_][0] != "ipp-sodium-coolant-production": errs.append(rn_ + ": chlorine routes and sodium production must unlock together")
+if "ipp-lime-concrete" not in recipes or amt(recipes["ipp-lime-concrete"], 'in', "ipp-lime") is None or amt(recipes["ipp-lime-concrete"], 'out', "concrete") is None: errs.append("lime concrete")
+# chlorine / sodium cannot be vented, surplus CO2 can
+for f in ("ipp-chlorine", "ipp-primary-sodium", "ipp-primary-sodium-hot", "ipp-secondary-sodium", "ipp-secondary-sodium-hot"):
+    if V.denied[f] != "hazard" or f in allowed: errs.append(f + ": must be refused as a hazard")
+if "ipp-co2" not in allowed or "ipp-sco2" in allowed or "ipp-sco2-hot" in allowed: errs.append("only CO2 can be vented")
+if unlocked["ipp-vent-co2"][0] != "ipp-sodium-coolant-production": errs.append("CO2 vent unlocked with the kiln")
+# initial coolant filling: what it takes to fill the plant once (nothing is consumed afterwards: every sodium loop recipe is a closed loop)
+loops_fill = 3 * (3 * D.SODIUM_FLOW * 2) + 2 * 3 * SEc.hot_primary_per_second * 2   # circulation boxes + exchanger boxes, rough lower bound
+fill_salt = loops_fill / ELc.sodium * ELc.salt
+print("sodium: filling the machines alone takes >= %.0f units = %.0f dry salt = %.0f brine; one electrolyzer makes %.0f sodium/s" % (loops_fill, fill_salt, fill_salt / SCc4.salt_out * SCc4.salt_brine, ELc.sodium / ELc.time_s))
+if any(amt(recipes[r_], 'in', f_) != amt(recipes[r_], 'out', f2_) for r_, f_, f2_ in (("ipp-sodium-heat-exchange", "ipp-primary-sodium-hot", "ipp-primary-sodium"), ("ipp-co2-heating-direct", "ipp-secondary-sodium-hot", "ipp-secondary-sodium"))): errs.append("routine coolant consumption must be zero")
+
+# --- fuel cycle recipes follow config, nothing can be bred out of nothing
+fab = {"ipp-mox-assembly-fabrication": ("ipp-mox-assembly", {"ipp-plutonium-bearing-material": BFc.mox.pbm, "uranium-238": BFc.mox.du, "ipp-fuel-cladding": BFc.mox.claddings}),
+       "ipp-starter-assembly-fabrication": ("ipp-starter-assembly", {"uranium-235": BFc.starter.u235, "uranium-238": BFc.starter.du, "ipp-fuel-cladding": BFc.starter.claddings}),
+       "ipp-blanket-assembly-fabrication": ("ipp-blanket-assembly", {"uranium-238": BFc.blanket.du, "ipp-fuel-cladding": BFc.blanket.claddings})}
+for rn_, (out_, ins_) in fab.items():
+    r_ = recipes[rn_]
+    if amt(r_, 'out', out_) != 1: errs.append(rn_ + ": product")
+    for k_, v_ in ins_.items():
+        if amt(r_, 'in', k_) != v_: errs.append("%s: %s != config" % (rn_, k_))
+    if "ipp-fuel-fabrication" not in rcats(r_): errs.append(rn_ + ": category")
+# the normal fuel needs recovered plutonium AND depleted uranium; the bootstrap fuel needs enriched uranium and no breeder output
+if amt(recipes["ipp-mox-assembly-fabrication"], 'in', "uranium-235") is not None: errs.append("MOX must not need enriched uranium")
+if amt(recipes["ipp-starter-assembly-fabrication"], 'in', "ipp-plutonium-bearing-material") is not None: errs.append("the starter assembly must not need plutonium (the first breeder needs no working breeder)")
+irr = recipes["ipp-blanket-irradiation"]
+if amt(irr, 'in', "ipp-blanket-assembly") != 1 or amt(irr, 'out', "ipp-bred-blanket-assembly") != 1 or irr.energy_required != CF.blanket_channel.channel_time_s: errs.append("irradiation recipe")
+rcore, rbl = recipes["ipp-spent-core-reprocessing"], recipes["ipp-bred-blanket-reprocessing"]
+for r_, c_, src in ((rcore, BFc.core_reprocessing, "ipp-spent-core-assembly-cooled"), (rbl, BFc.blanket_reprocessing, "ipp-bred-blanket-assembly")):
+    if amt(r_, 'in', src) != 1 or amt(r_, 'out', "ipp-plutonium-bearing-material") != c_.pbm or amt(r_, 'out', "uranium-238") != c_.du or amt(r_, 'out', "ipp-radioactive-residue") != c_.residue: errs.append(r_.name + " != config")
+    if amt(r_, 'out', "uranium-235") is not None: errs.append(r_.name + ": reprocessing must not hand out enriched uranium")
+    if amt(r_, 'in', "sulfuric-acid") != CF.reprocessing.acid or amt(r_, 'in', "ipp-solvent") != CF.reprocessing.solvent or r_.energy_required != CF.reprocessing.time_s: errs.append(r_.name + ": acid / solvent / time must match the tier 3 plant")
+    if "ipp-reprocessing" not in rcats(r_): errs.append(r_.name + ": category")
+if amt(recipes["ipp-spent-core-cooling"], 'in', "ipp-spent-core-assembly") != 1 or amt(recipes["ipp-spent-core-cooling"], 'out', "ipp-spent-core-assembly-cooled") != 1: errs.append("spent core cooling")
+if recipes["ipp-spent-core-cooling"].energy_required != CF.spent_fuel_pool.cooling_time_s: errs.append("spent core cooling time must match the pool")
+if amt(recipes["ipp-spent-core-reprocessing"], 'in', "ipp-spent-core-assembly") is not None: errs.append("hot spent core fuel must cool before reprocessing")
+# closed-loop check on the recipe amounts: one MOX assembly burnt + the blankets bred during it
+burnt = BFc.mox.burnt_fissile
+pbm_back = amt(rcore, 'out', "ipp-plutonium-bearing-material") + D.fuel.blankets_per_mox * amt(rbl, 'out', "ipp-plutonium-bearing-material")
+du_net = (BFc.mox.du - amt(rcore, 'out', "uranium-238")) + D.fuel.blankets_per_mox * (BFc.blanket.du - amt(rbl, 'out', "uranium-238"))
+waste = amt(rcore, 'out', "ipp-radioactive-residue") + D.fuel.blankets_per_mox * amt(rbl, 'out', "ipp-radioactive-residue")
+ratio = (pbm_back - BFc.mox.pbm + burnt) / burnt
+print("fuel cycle per MOX assembly (%.0f GJ): %.1f PBM back for %d in, %.1f depleted uranium eaten, %.1f residue made, breeding ratio %.2f" % (D.fuel.mox_gj, pbm_back, BFc.mox.pbm, du_net, waste, ratio))
+if not 1.0 < ratio <= 1.3: errs.append("breeding ratio %.2f is not modestly above one" % ratio)
+if du_net <= 0: errs.append("the cycle must consume depleted uranium")
+if waste <= 0: errs.append("the cycle must make waste")
+if pbm_back - BFc.mox.pbm > burnt: errs.append("more fissile gained than burnt: that is not breeding any more")
+# a loop without blankets must shrink, a loop with the blankets of that burn must grow only modestly
+if amt(rcore, 'out', "ipp-plutonium-bearing-material") >= BFc.mox.pbm: errs.append("the bare core must return less fissile material than it was loaded with")
+# a blanket assembly cannot be loaded into a core, a MOX assembly cannot be irradiated
+if "ipp-fast-fuel" in (raw.item["ipp-blanket-assembly"].fuel_categories or {}): errs.append("blanket assemblies cannot burn")
+print("tier 4 checks done")
+
+
+# ---- locale: every ipp-* prototype has a name (and the tier 4 ones a description where the tooltip needs one) ----
+import re as _re
+_loc, _sec = {}, None
+for _line in open(MOD + "/locale/en/locale.cfg", encoding="utf-8").read().splitlines():
+    _m = _re.match(r"^\[(.+)\]$", _line)
+    if _m: _sec = _m.group(1); continue
+    if "=" in _line and _sec and not _line.startswith("#"):
+        _k, _v = _line.split("=", 1)
+        if (_sec, _k) in _loc: errs.append("locale: duplicate key %s.%s" % (_sec, _k))
+        _loc[(_sec, _k)] = _v
+def _has(sec, name): return (sec, name) in _loc
+for _n in raw.item.keys():
+    if _n.startswith("ipp-") and raw.item[_n].localised_name is None and not _has("item-name", _n) and not _has("entity-name", _n): errs.append("locale: item-name.%s missing" % _n)
+for _n in raw.fluid.keys():
+    if _n.startswith("ipp-") and not _has("fluid-name", _n): errs.append("locale: fluid-name.%s missing" % _n)
+    if _n.startswith("ipp-") and not _has("fluid-description", _n): errs.append("locale: fluid-description.%s missing" % _n)
+for _n in recipes.keys():
+    if _n.startswith("ipp-") and not (_has("recipe-name", _n) or _has("item-name", _n) or _has("entity-name", _n) or _has("fluid-name", _n)): errs.append("locale: recipe-name.%s missing" % _n)
+for _t in raw.technology.keys():
+    if _t.startswith("ipp-") and not (_has("technology-name", _t) and _has("technology-description", _t)): errs.append("locale: technology name/description %s missing" % _t)
+for _c in raw["recipe-category"].keys():
+    if _c.startswith("ipp-") and not _has("recipe-category-name", _c): errs.append("locale: recipe-category-name.%s missing" % _c)
+for _c in raw["fuel-category"].keys():
+    if _c.startswith("ipp-") and not _has("fuel-category-name", _c): errs.append("locale: fuel-category-name.%s missing" % _c)
+for _typ in ("assembling-machine", "reactor", "boiler", "fusion-generator", "storage-tank"):
+    for _n in raw[_typ].keys():
+        if _n.startswith("ipp-"):
+            if not _has("entity-name", _n): errs.append("locale: entity-name.%s missing" % _n)
+            if not _has("entity-description", _n) and raw[_typ][_n].localised_description is not None: errs.append("locale: entity-description.%s missing" % _n)
+# parameters: the highest __N__ of a description must not exceed what the prototype passes
+def _params(s_): return max([int(x) for x in _re.findall(r"__(\d+)__", s_)] or [0])
+def _npar(ld): return 0 if ld is None else len([k for k in ld.keys() if isinstance(k, int)]) - 1
+for _typ in ("assembling-machine", "reactor", "boiler", "fusion-generator", "storage-tank"):
+    for _n in raw[_typ].keys():
+        if _n.startswith("ipp-") and _has("entity-description", _n) and raw[_typ][_n].localised_description is not None:
+            if _params(_loc[("entity-description", _n)]) > _npar(raw[_typ][_n].localised_description): errs.append("locale: entity-description.%s uses more parameters than the tooltip passes" % _n)
+for _n in ("ipp-mox-assembly", "ipp-starter-assembly"):
+    if _params(_loc[("item-description", _n)]) > _npar(raw.item[_n].localised_description): errs.append("locale: item-description.%s parameters" % _n)
+if _params(_loc[("fluid-description", "ipp-sco2-hot")]) > _npar(raw.fluid["ipp-sco2-hot"].localised_description): errs.append("locale: fluid-description.ipp-sco2-hot parameters")
+print("locale checked: %d keys" % len(_loc))
 
 # ---- every property name must exist in the 2.1 prototype API (skipped when prototype-api.json is not next to the mod) ----
 import json

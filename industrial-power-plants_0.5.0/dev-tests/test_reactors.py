@@ -25,13 +25,12 @@ FORCE = { players = { { add_custom_alert = function() ALERTS = ALERTS + 1 end } 
 local D = require("shared.defs")
 local R = D.reactor
 local M = require("scripts.reactors")
-M.register_events()
 
 -- world ------------------------------------------------------------------------------------------
 local next_unit = 1
 function mk(opts)
   opts = opts or {}
-  local e = { name = D.REACTOR, valid = true, unit_number = next_unit, force = FORCE, temperature = 15,
+  local e = { name = opts.name or D.REACTOR, valid = true, unit_number = next_unit, force = FORCE, temperature = 15,
     neighbour_bonus = opts.bonus or 0, disabled_by_script = nil, sig = {}, wired = opts.wired ~= false, fail = false,
     fuel = opts.fuel ~= false, gps_tag = "[gps=1,1]", active = true }
   next_unit = next_unit + 1
@@ -47,6 +46,7 @@ end
 -- one game tick: physics first (heat in while enabled, sink out above min working temperature), then the script
 function step(e, tick)
   if not e.valid then return end
+  local R = D.reactors[e.name]
   e.total_ticks = e.total_ticks + 1
   local mult = 1 + e.neighbour_bonus
   if not e.disabled_by_script and e.fuel then
@@ -75,10 +75,12 @@ R = g.require("shared.defs").reactor
 M = g.require("scripts.reactors")
 
 print("event registration (engine rules)")
+M.register_events()
 reg = list(g.REG.values())
-filtered = [r for r in reg if r.filters is not None]
-check("every filtered registration is a single event with the core-name filter", all(r.filters[1].name == "ipp-pwr-reactor-core" for r in filtered) and len(filtered) >= 10)
 check("on_tick is registered", any(r.id == "on_tick" for r in reg))
+check("lifecycle events are NOT registered here (scripts/events.lua registers them once)", not any(r.id in ("on_built_entity", "on_entity_died") for r in reg))
+check("both core types are handled by the one script", M.lifecycle.names["ipp-pwr-reactor-core"] is True and M.lifecycle.names["ipp-fast-breeder-reactor"] is True)
+check("hook list exists for scripts that need on_tick", M.hooks is not None)
 
 print("new core")
 e = mk(lua.table(wired=False)); M.register(e)
@@ -242,6 +244,33 @@ check("a core that was cooled in time survives", g.DIES == 0 and e.valid, e.temp
 # instant meltdown at the maximum
 e = mk(lua.table(sink_mw=0)); M.register(e); e.temperature = R.max_c; run(e, 0.3)
 check("reaching the maximum temperature melts the core at once", not e.valid)
+
+
+print("fast-breeder core: the same script, its own constants")
+DD = g.require("shared.defs")
+FB = DD.reactors["ipp-fast-breeder-reactor"]; FBC = DD.config.fast_breeder
+check("breeder constants come from config.fast_breeder", FB.rated_w == FBC.power_mw * 1e6 and FB.specific_heat_j == FBC.specific_heat_mj * 1e6 and FB != R)
+check("the Tier 3 constants are untouched", R.rated_w == DD.config.reactor.power_mw * 1e6)
+def fbr(**kw):
+    c = mk(lua.table(name="ipp-fast-breeder-reactor", **kw)); M.register(c); return c
+RATE = FB.rated_w / FB.specific_heat_j
+def at_full_rods(**kw):
+    c = fbr(sink_mw=1e6, **kw); c.sig["ipp-rod-withdrawal"] = 100; run(c, 110); c.sink_mw = 0; return c   # rods out (1 %/s), then no cooling
+c = at_full_rods(); t0 = c.temperature; run(c, 20)
+check("uncooled, the breeder core heats at rated power / thermal mass (%.1f C/s)" % RATE, abs((c.temperature - t0) / 20 - RATE) < 0.05 and c.temperature < FB.warning_c, (t0, c.temperature))
+c = fbr(sink_mw=FBC.power_mw); c.sig["ipp-rod-withdrawal"] = 100; run(c, 300)
+check("cooled at its rated power the core settles at the exchanger's working temperature", c.valid and c.temperature <= 351, c.temperature)
+c = at_full_rods(bonus=2); t0 = c.temperature; run(c, 20)
+check("neighbour bonus multiplies the breeder core's output (x3)", abs((c.temperature - t0) / 20 - 3 * RATE) < 0.1 and c.temperature < FB.warning_c, (t0, c.temperature))
+c = fbr(); c.sig["ipp-rod-withdrawal"] = 100; run(c, 30)
+c.sig["ipp-scram"] = 1; run(c, 5); c.sig["ipp-scram"] = None
+check("SCRAM drives the breeder rods in and latches", entry(c).rod == 0 and entry(c).tripped is True, entry(c).rod)
+check("... the lockout uses the breeder's own time", abs(entry(c).lock_left - FBC.scram_lockout_s) < 10, entry(c).lock_left)
+c = fbr(); c.sig["ipp-rod-withdrawal"] = 100; run(c, 300)
+check("an uncooled breeder core has not exploded after 300 s uncooled (explosion needs the full climb to 2500 C)", c.valid and entry(c) is not None)
+run(c, 400)
+check("an uncooled breeder core melts down (explosion at %d C)" % FBC.meltdown_temperature_c, not c.valid)
+print("both core types share one script: %d entries" % len([1 for _ in g.storage.ipp_reactors.values()]))
 
 print("lifecycle")
 e = mk(); M.register(e); M.register(e)

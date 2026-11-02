@@ -7,6 +7,9 @@ local cats = {
   -- tier 3
   "ipp-steam-generation", "ipp-surface-condensing", "ipp-evaporative-cooling", "ipp-dry-cooling", "ipp-fuel-cooling",
   "ipp-reprocessing", "ipp-vitrification", "ipp-water-treatment",
+  -- tier 4
+  "ipp-sodium-exchange", "ipp-co2-heating", "ipp-co2-compression", "ipp-co2-recuperation", "ipp-co2-cooling",
+  "ipp-fuel-fabrication", "ipp-irradiation", "ipp-electrolysis",
 }
 for _, c in ipairs(cats) do data:extend { { type = "recipe-category", name = c } } end
 
@@ -18,6 +21,8 @@ data:extend {
   { type = "item-subgroup", name = "ipp-fuel-cycle",      group = "intermediate-products", order = "z-b" },
   -- Tier 3: assemblies burn in the reactor core only (vanilla fuel cells are not "ipp-fuel-assembly" fuel)
   { type = "fuel-category", name = "ipp-fuel-assembly" },
+  -- Tier 4: MOX and starter assemblies burn in fast-breeder cores only
+  { type = "fuel-category", name = "ipp-fast-fuel" },
 }
 
 -- Control-rod signals read by the reactor core (see scripts/reactors.lua).
@@ -70,3 +75,23 @@ fluid("ipp-hp-steam",          "steam",         U.color(0.80, 0.90, 1.00), "h", 
 fluid("ipp-cooling-water",      "water",        U.color(0.35, 0.75, 0.95), "i")
 fluid("ipp-cooling-water-warm", "water",        U.color(0.95, 0.75, 0.40), "j")
 fluid("ipp-solvent",            "light-oil",    U.color(0.80, 0.95, 0.55), "k")
+
+-- Tier 4 fluids. Sodium: same pattern as the Tier 3 primary water (the cool fluids stay at default temperature, the hot
+-- primary fluid is heated natively by the sodium circulation unit; hot secondary sodium is a plain fluid, its heat is in the
+-- recipes). Primary and secondary sodium are different fluids on purpose: the loops cannot be mixed up. Nothing but the
+-- circulation unit ever stamps a temperature.
+local SOD = D.config.sodium_unit
+fluid("ipp-primary-sodium",         "water", U.color(0.75, 0.80, 0.95), "p-a", { heat_capacity = "1kJ" })
+fluid("ipp-primary-sodium-hot",     "water", U.color(1.00, 0.60, 0.40), "p-b", { heat_capacity = "1kJ", max_temperature = SOD.hot_fluid_max_c })
+fluid("ipp-secondary-sodium",       "water", U.color(0.70, 0.90, 0.95), "p-c")
+fluid("ipp-secondary-sodium-hot",   "water", U.color(1.00, 0.75, 0.45), "p-d")
+fluid("ipp-chlorine",               "light-oil", U.color(0.75, 0.95, 0.30), "p-e")
+fluid("ipp-brine",                  "water", U.color(0.80, 0.85, 0.80), "p-f")
+-- Supercritical CO2 loop. Energies per unit (measured from the compressor outlet) come from config.lua: hot CO2 is the
+-- turbine's fuel; the other states differ in identity only, which is how the heater knows whether it was fed preheated CO2.
+fluid("ipp-co2",       "steam", U.color(0.70, 0.72, 0.75), "q-a")
+fluid("ipp-sco2",         "steam", U.color(0.60, 0.75, 0.90), "q-b")
+fluid("ipp-sco2-warm",    "steam", U.color(0.90, 0.80, 0.60), "q-c")
+fluid("ipp-sco2-hot",     "steam", U.color(1.00, 0.55, 0.35), "q-d", { fuel_value = D.SCO2_HOT_MJ .. "MJ",
+  localised_description = { "fluid-description.ipp-sco2-hot", D.fmt(D.SCO2_HOT_MJ) } })
+fluid("ipp-sco2-exhaust", "steam", U.color(0.80, 0.65, 0.70), "q-e")

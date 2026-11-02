@@ -78,6 +78,45 @@ data:extend {
   },
 }
 
+-- Tier 4: sodium coolant chemistry first (it has to bring the chlorine routes with it), then the breeder plant itself.
+local sodium_effects = {
+  "ipp-electrode-assembly", "ipp-thermal-insulation", "ipp-sodium-electrolyzer", "ipp-hot-fluid-tank",
+  "ipp-brine-preparation", "ipp-sodium-salt-drying", "ipp-lime-kiln",
+  "ipp-primary-sodium-electrolysis", "ipp-secondary-sodium-electrolysis",
+  "ipp-chlorine-neutralization", "ipp-chlorinated-plastic", "ipp-lime-concrete", "ipp-vent-co2",
+}
+if data.raw.item["calcite"] then sodium_effects[#sodium_effects + 1] = "ipp-lime-kiln-calcite" end
+data:extend {
+  {
+    type = "technology", name = "ipp-sodium-coolant-production",
+    icons = U.tech_icons("sulfur-processing", U.color(0.85, 0.9, 1.0)),
+    prerequisites = { "ipp-pressurized-water-power", "sulfur-processing" },
+    effects = unlock(sodium_effects),
+    unit = { count = R.sodium_coolant.count, time = R.sodium_coolant.time, ingredients = {
+      { "automation-science-pack", 1 }, { "logistic-science-pack", 1 }, { "chemical-science-pack", 1 } } },
+    order = "e-p-f",
+  },
+  {
+    type = "technology", name = "ipp-fast-breeder-power",
+    icons = U.tech_icons("kovarex-enrichment-process", U.color(1.0, 0.8, 0.6)),
+    prerequisites = { "ipp-sodium-coolant-production", "ipp-nuclear-reprocessing", "kovarex-enrichment-process" },
+    effects = unlock {
+      "ipp-refractory-alloy", "ipp-ceramic-seal", "ipp-precision-rotor", "ipp-refractory-rotor", "ipp-pressure-housing",
+      "ipp-recuperator-matrix", "ipp-handling-machinery",
+      "ipp-heat-pipe-2", "ipp-fast-breeder-reactor", "ipp-sodium-circulation-unit", "ipp-blanket-channel", "ipp-intermediate-sodium-exchanger",
+      "ipp-sodium-co2-heater", "ipp-sco2-compressor", "ipp-sco2-turbine-generator", "ipp-recuperator", "ipp-sco2-cooler",
+      "ipp-shielded-fuel-fabricator",
+      "ipp-sodium-heat-exchange", "ipp-co2-heating-recuperated", "ipp-co2-heating-direct", "ipp-sco2-compression",
+      "ipp-sco2-recuperation", "ipp-sco2-cooling", "ipp-blanket-irradiation",
+      "ipp-mox-assembly-fabrication", "ipp-starter-assembly-fabrication", "ipp-blanket-assembly-fabrication",
+      "ipp-spent-core-cooling", "ipp-spent-core-reprocessing", "ipp-bred-blanket-reprocessing",
+    },
+    unit = { count = R.fast_breeder_power.count, time = R.fast_breeder_power.time, ingredients = {
+      { "automation-science-pack", 1 }, { "logistic-science-pack", 1 }, { "chemical-science-pack", 1 }, { "production-science-pack", 1 } } },
+    order = "e-p-g",
+  },
+}
+
 -- Tier 3 replaces the vanilla nuclear branch instead of sitting beside a simpler bypass: the vanilla "Nuclear power"
 -- research keeps its fuel cells and heat pipes (the new plant needs them) but no longer unlocks the vanilla reactor,
 -- heat exchanger or steam turbine. Switch it off with config replace_vanilla_nuclear = false.

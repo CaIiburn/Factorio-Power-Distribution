@@ -12,9 +12,14 @@ local D = { config = C }
 D.STEAM_KJ    = C.fluids.industrial_steam_kj
 D.FUEL_GAS_MJ = C.fluids.fuel_gas_mj
 D.HP_STEAM_KJ = C.fluids.hp_steam_kj
+D.SCO2_HOT_MJ = C.fluids.sco2_hot_mj
+D.SCO2_PREHEAT_MJ = C.fluids.sco2_recuperated_mj
 
 -- Prototype / signal names shared by the data and control stages.
 D.REACTOR       = "ipp-pwr-reactor-core"
+D.FBR           = "ipp-fast-breeder-reactor"      -- Tier 4 core (same rods / SCRAM script as D.REACTOR)
+D.CHANNEL       = "ipp-blanket-channel"
+D.HEATER        = "ipp-sodium-co2-heater"
 D.SIGNAL_ROD    = "ipp-rod-withdrawal"
 D.SIGNAL_SCRAM  = "ipp-scram"
 
@@ -73,6 +78,9 @@ D.generators = {
     D.HP_STEAM_KJ / 1000, { r = 0.70, g = 0.80, b = 1.00 }, "l"),
   ["ipp-gas-turbine-generator"] = generator("gas", "ipp-fuel-gas", "ipp-hot-exhaust",
     D.FUEL_GAS_MJ, { r = 0.80, g = 0.90, b = 0.70 }, "h"),
+  -- Tier 4: burns hot supercritical CO2 as fuel (like every other turbine here), returns turbine exhaust CO2
+  ["ipp-sco2-turbine-generator"] = generator("sco2", "ipp-sco2-hot", "ipp-sco2-exhaust",
+    C.fluids.sco2_hot_mj, { r = 1.00, g = 0.85, b = 0.65 }, "n"),
 }
 
 -- Validate every other number once, so a typo fails at load time with the key name.
@@ -151,27 +159,108 @@ whole(C.dry_cask.inventory_slots, 1, "dry_cask.inventory_slots")
 whole(C.reprocessing.size, 3, "reprocessing.size", true)
 whole(C.vitrifier.size, 3, "vitrifier.size", true)
 
+-- ---- Tier 4 ----
+do
+  local fb, su = C.fast_breeder, C.sodium_unit
+  for _, k in ipairs { "power_mw", "specific_heat_mj", "max_temperature_c", "health", "rod_speed_pct_per_second",
+      "scram_speed_pct_per_second", "rod_exponent", "decay_rise_s", "decay_fall_s", "warning_temperature_c",
+      "meltdown_temperature_c", "meltdown_grace_s" } do positive(fb[k], "fast_breeder." .. k) end
+  whole(fb.fuel_slots, 1, "fast_breeder.fuel_slots"); whole(fb.spent_slots, 1, "fast_breeder.spent_slots")
+  if type(fb.scram_lockout_s) ~= "number" or fb.scram_lockout_s < 0 then
+    error("industrial-power-plants config.lua: fast_breeder.scram_lockout_s must be a number >= 0")
+  end
+  if type(fb.neighbour_bonus) ~= "number" or fb.neighbour_bonus < 0 then
+    error("industrial-power-plants config.lua: fast_breeder.neighbour_bonus must be a number >= 0")
+  end
+  if type(fb.decay_fraction) ~= "number" or fb.decay_fraction < 0 or fb.decay_fraction > 1 then
+    error("industrial-power-plants config.lua: fast_breeder.decay_fraction must be between 0 and 1")
+  end
+  if fb.rod_speed_pct_per_second > fb.scram_speed_pct_per_second then
+    error("industrial-power-plants config.lua: fast_breeder.scram_speed_pct_per_second must not be below rod_speed_pct_per_second")
+  end
+  if not (fb.warning_temperature_c < fb.meltdown_temperature_c and fb.meltdown_temperature_c <= fb.max_temperature_c) then
+    error("industrial-power-plants config.lua: fast_breeder temperatures must satisfy warning < meltdown <= max")
+  end
+  if fb.meltdown_temperature_c <= 0.9 * fb.max_temperature_c then
+    error("industrial-power-plants config.lua: fast_breeder.meltdown_temperature_c must be above 90 % of max_temperature_c")
+  end
+  check("sodium_unit", { "power_mw", "target_c", "min_working_c", "hot_fluid_max_c", "health" })
+  if su.target_c <= 15 then error("industrial-power-plants config.lua: sodium_unit.target_c must be above 15 degC") end
+  if su.hot_fluid_max_c < su.target_c then error("industrial-power-plants config.lua: sodium_unit.hot_fluid_max_c must be >= target_c") end
+end
+check("heat_pipe_2", { "max_temperature_c", "health" })
+check("sodium_exchanger", { "hot_primary_per_second", "cool_primary_per_second", "secondary_per_second", "power_mw", "idle_drain_kw", "health" })
+check("co2_heater", { "sodium_per_second", "recuperated_co2_per_second", "direct_co2_per_second", "power_kw", "idle_drain_kw", "health" })
+check("sco2_compressor", { "co2_per_second", "power_mw", "idle_drain_kw", "health" })
+check("recuperator", { "co2_per_second", "power_kw", "idle_drain_kw", "health" })
+check("sco2_cooler", { "exhaust_per_second", "power_mw", "idle_drain_kw", "health" })
+check("hot_tank", { "capacity", "health" })
+check("fuel_fabricator", { "power_mw", "idle_drain_kw", "health" })
+check("blanket_channel", { "channel_time_s", "reach_tiles", "health" })
+check("electrolyzer", { "time_s", "salt", "sodium", "chlorine", "power_mw", "idle_drain_kw", "health" })
+for k, v in pairs(C.sodium_chemistry) do positive(v, "sodium_chemistry." .. k) end
+for _, k in ipairs { "mox", "starter", "blanket", "core_reprocessing", "blanket_reprocessing" } do
+  for kk, v in pairs(C.breeder_fuel[k]) do positive(v, "breeder_fuel." .. k .. "." .. kk) end
+end
+positive(C.breeder_fuel.gj_per_fissile, "breeder_fuel.gj_per_fissile"); positive(C.breeder_fuel.fabrication_time_s, "breeder_fuel.fabrication_time_s")
+positive(C.fluids.sco2_hot_mj, "fluids.sco2_hot_mj"); positive(C.fluids.sco2_recuperated_mj, "fluids.sco2_recuperated_mj")
+if C.fluids.sco2_recuperated_mj >= C.fluids.sco2_hot_mj then
+  error("industrial-power-plants config.lua: fluids.sco2_recuperated_mj must be below sco2_hot_mj (the heater has to add something)")
+end
+whole(C.sodium_exchanger.size, 3, "sodium_exchanger.size", true)
+whole(C.co2_heater.size, 3, "co2_heater.size", true)
+whole(C.sco2_compressor.size, 1, "sco2_compressor.size", true)
+whole(C.recuperator.size, 3, "recuperator.size", true)
+whole(C.sco2_cooler.size, 1, "sco2_cooler.size", true)
+whole(C.fuel_fabricator.size, 3, "fuel_fabricator.size", true)
+whole(C.blanket_channel.size, 1, "blanket_channel.size", true)
+whole(C.electrolyzer.size, 3, "electrolyzer.size", true)
+
+-- Derived Tier 4 numbers.
+D.SODIUM_UNIT_KJ = C.sodium_unit.target_c - 15                              -- kJ per unit of hot primary / secondary sodium
+D.SODIUM_FLOW    = C.sodium_unit.power_mw * 1000 / D.SODIUM_UNIT_KJ         -- units/s one circulation unit moves at full power
+local bf = C.breeder_fuel
+D.breeder = {
+  rated_w        = C.fast_breeder.power_mw * 1e6,
+  channel_time_s = C.blanket_channel.channel_time_s,
+  irradiation_j  = bf.blanket.irradiation_gj * 1e9,
+  reach          = C.blanket_channel.reach_tiles,
+}
+-- Fuel cycle numbers (all per assembly): energy, breeding ratio and the heavy-metal balance.
+D.fuel = {
+  mox_gj        = bf.mox.burnt_fissile * bf.gj_per_fissile,
+  starter_gj    = bf.starter.burnt_fissile * bf.gj_per_fissile,
+  blankets_per_mox = bf.mox.burnt_fissile * bf.gj_per_fissile / bf.blanket.irradiation_gj,
+}
+D.fuel.fissile_out = bf.core_reprocessing.pbm + D.fuel.blankets_per_mox * bf.blanket_reprocessing.pbm
+D.fuel.breeding_ratio = (D.fuel.fissile_out - bf.mox.pbm + bf.mox.burnt_fissile) / bf.mox.burnt_fissile
+D.fuel.core_only_ratio = (bf.core_reprocessing.pbm - bf.mox.pbm + bf.mox.burnt_fissile) / bf.mox.burnt_fissile
+
 -- Derived primary-loop numbers: one unit of primary water carries 1 kJ per degC (heat capacity of both primary fluids).
 D.PRIMARY_UNIT_KJ = C.primary_unit.target_c - 15                       -- kJ per unit of hot primary water
 D.PRIMARY_FLOW    = C.primary_unit.power_mw * 1000 / D.PRIMARY_UNIT_KJ -- units/s one circulation unit moves at full power
 
--- Reactor constants for the control script (watts, seconds, degC).
-D.reactor = {
-  rated_w         = C.reactor.power_mw * 1e6,
-  specific_heat_j = C.reactor.specific_heat_mj * 1e6,
-  neighbour_bonus = C.reactor.neighbour_bonus,
-  rod_speed       = C.reactor.rod_speed_pct_per_second,
-  scram_speed     = C.reactor.scram_speed_pct_per_second,
-  scram_lockout_s = C.reactor.scram_lockout_s,
-  rod_exponent    = C.reactor.rod_exponent,
-  decay_fraction  = C.reactor.decay_fraction,
-  decay_rise_s    = C.reactor.decay_rise_s,
-  decay_fall_s    = C.reactor.decay_fall_s,
-  warning_c       = C.reactor.warning_temperature_c,
-  meltdown_c      = C.reactor.meltdown_temperature_c,
-  grace_s         = C.reactor.meltdown_grace_s,
-  max_c           = C.reactor.max_temperature_c,
-}
+-- Reactor constants for the control script (watts, seconds, degC). One table per core type; D.reactor is the Tier 3 core.
+local function reactor_params(rc)
+  return {
+    rated_w         = rc.power_mw * 1e6,
+    specific_heat_j = rc.specific_heat_mj * 1e6,
+    neighbour_bonus = rc.neighbour_bonus,
+    rod_speed       = rc.rod_speed_pct_per_second,
+    scram_speed     = rc.scram_speed_pct_per_second,
+    scram_lockout_s = rc.scram_lockout_s,
+    rod_exponent    = rc.rod_exponent,
+    decay_fraction  = rc.decay_fraction,
+    decay_rise_s    = rc.decay_rise_s,
+    decay_fall_s    = rc.decay_fall_s,
+    warning_c       = rc.warning_temperature_c,
+    meltdown_c      = rc.meltdown_temperature_c,
+    grace_s         = rc.meltdown_grace_s,
+    max_c           = rc.max_temperature_c,
+  }
+end
+D.reactor = reactor_params(C.reactor)
+D.reactors = { [D.REACTOR] = D.reactor, [D.FBR] = reactor_params(C.fast_breeder) }
 
 -- Soft balance checks (data stage only: `log` does not exist in the control stage).
 if log then
@@ -212,6 +301,39 @@ if log then
   if math.abs(C.fuel_assembly.energy_gj - C.fuel_assembly.cells * 8) > 1e-9 then
     warn("fuel_assembly.energy_gj differs from cells x 8 GJ (the uranium fuel cells that go into the recipe)")
   end
+  -- Tier 4 chain
+  local tb = D.generators["ipp-sco2-turbine-generator"]
+  local se, ch, cp, rc_, cl = C.sodium_exchanger, C.co2_heater, C.sco2_compressor, C.recuperator, C.sco2_cooler
+  local fb = C.breeder_fuel
+  if se.hot_primary_per_second ~= se.cool_primary_per_second then warn("sodium_exchanger: primary loop would gain or lose sodium (hot_primary != cool_primary)") end
+  if ch.sodium_per_second ~= se.secondary_per_second then warn("co2_heater.sodium_per_second differs from sodium_exchanger.secondary_per_second (secondary loop would gain or lose sodium)") end
+  if math.abs(se.hot_primary_per_second - 3 * D.SODIUM_FLOW) > 1e-6 and math.abs(se.hot_primary_per_second % D.SODIUM_FLOW) > 1e-6 then
+    warn(string.format("sodium_exchanger takes %s hot primary sodium/s, not a whole number of circulation units (one moves %.1f/s)", se.hot_primary_per_second, D.SODIUM_FLOW))
+  end
+  if ch.recuperated_co2_per_second ~= tb.per_second then warn("co2_heater.recuperated_co2_per_second differs from the CO2 turbine intake (" .. tb.per_second .. ")") end
+  for _, pair in ipairs { { "sco2_compressor.co2_per_second", cp.co2_per_second }, { "recuperator.co2_per_second", rc_.co2_per_second }, { "sco2_cooler.exhaust_per_second", cl.exhaust_per_second } } do
+    if pair[2] ~= tb.per_second then warn(pair[1] .. " differs from the CO2 turbine flow (" .. tb.per_second .. ")") end
+  end
+  local heat_in = se.secondary_per_second * D.SODIUM_UNIT_KJ / 1000
+  local heat_rec = ch.recuperated_co2_per_second * (D.SCO2_HOT_MJ - D.SCO2_PREHEAT_MJ)
+  local heat_dir = ch.direct_co2_per_second * D.SCO2_HOT_MJ
+  if heat_rec > heat_in + 1e-9 then warn(string.format("heater makes hot CO2 worth %.1f MW from %.1f MW of sodium heat (energy created from nothing)", heat_rec, heat_in)) end
+  if heat_dir > heat_in + 1e-9 then warn(string.format("heater (direct feed) makes hot CO2 worth %.1f MW from %.1f MW of sodium heat", heat_dir, heat_in)) end
+  if math.abs(heat_rec - heat_dir) > 1e-6 then warn("the heater's two recipes do not carry the same heat (recuperated " .. heat_rec .. " MW, direct " .. heat_dir .. " MW)") end
+  local exhaust_heat = rc_.co2_per_second * (1 - tb.effectivity) * D.SCO2_HOT_MJ
+  if rc_.co2_per_second * D.SCO2_PREHEAT_MJ > exhaust_heat + 1e-9 then
+    warn(string.format("recuperator returns %.1f MW but the turbine exhaust only holds %.1f MW (energy created from nothing)", rc_.co2_per_second * D.SCO2_PREHEAT_MJ, exhaust_heat))
+  end
+  if C.heat_pipe_2.max_temperature_c >= C.fast_breeder.warning_temperature_c then
+    warn("heat_pipe_2.max_temperature_c should stay below the breeder core's warning temperature")
+  end
+  if C.heat_pipe_2.max_temperature_c <= 1000 then warn("heat_pipe_2.max_temperature_c is not above the vanilla heat pipe (1000 degC)") end
+  if D.fuel.breeding_ratio <= 1 or D.fuel.breeding_ratio > 1.5 then warn(string.format("breeding ratio is %.2f; the design wants it modestly above 1 (up to 1.5)", D.fuel.breeding_ratio)) end
+  for _, k in ipairs { "core_reprocessing", "blanket_reprocessing" } do
+    local out = fb[k].pbm + fb[k].du + fb[k].residue
+    local inp = (k == "core_reprocessing") and (fb.mox.pbm + fb.mox.du) or fb.blanket.du
+    if out > inp + 1e-9 then warn("breeder_fuel." .. k .. " returns more heavy metal than it was given (matter created)") end
+  end
 end
 
 -- Exhaust stack venting list. Single source of truth: vent recipes are generated from `allowed`, the
@@ -224,6 +346,7 @@ D.vent = {
     ["ipp-exhaust-steam"] = { recipe = "ipp-vent-exhaust-steam", rate = C.stack.vent_per_second.exhaust_steam },
     ["ipp-flue-gas"]      = { recipe = "ipp-vent-flue-gas",      rate = C.stack.vent_per_second.flue_gas },
     ["ipp-hot-exhaust"]   = { recipe = "ipp-vent-hot-exhaust",   rate = C.stack.vent_per_second.hot_exhaust },
+    ["ipp-co2"]        = { recipe = "ipp-vent-co2",           rate = C.stack.vent_per_second.co2    },   -- kiln surplus
   },
   denied = {
     ["ipp-industrial-steam"] = "valuable",  -- send it to a turbine
@@ -243,6 +366,17 @@ D.vent = {
     ["ipp-primary-water-hot"] = "hazard",
     ["ipp-secondary-water"] = "valuable",  -- closed secondary loop: it is never lost, so it is never vented
     ["ipp-solvent"]          = "hazard",
+    -- Tier 4: sodium is hazardous (primary sodium is also radioactive), chlorine is poisonous, the working CO2 stays in its loop
+    ["ipp-primary-sodium"]       = "hazard",
+    ["ipp-primary-sodium-hot"]   = "hazard",
+    ["ipp-secondary-sodium"]     = "hazard",
+    ["ipp-secondary-sodium-hot"] = "hazard",
+    ["ipp-chlorine"]             = "hazard",
+    ["ipp-brine"]                = "valuable",
+    ["ipp-sco2"]                 = "valuable",
+    ["ipp-sco2-warm"]            = "valuable",
+    ["ipp-sco2-hot"]             = "valuable",
+    ["ipp-sco2-exhaust"]         = "valuable",
   },
 }
 

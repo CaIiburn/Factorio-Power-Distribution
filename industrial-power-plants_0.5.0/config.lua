@@ -41,6 +41,10 @@ C.fluids = {
   industrial_steam_kj = 50,    -- kJ per unit of industrial steam
   fuel_gas_mj         = 1,     -- MJ per unit of pressurised fuel gas
   hp_steam_kj         = 90,    -- kJ per unit of high-pressure steam (already net of the thermal cycle's losses)
+  -- Tier 4 (supercritical CO2). Energies are measured from the compressor outlet (compressed CO2 = 0).
+  sco2_hot_mj         = 2,     -- MJ per unit of hot CO2 (turbine fuel value): what the heater adds to a COLD feed
+  sco2_recuperated_mj = 0.8,   -- MJ per unit of preheated CO2: what the recuperator has already added (must not exceed
+                               -- the heat the turbine exhaust still holds, (1 - turbine effectivity) x sco2_hot_mj)
 }
 
 --------------------------------------------------------------------------------------------------
@@ -59,6 +63,10 @@ C.turbines = {
   gas         = { fluid_per_second = 100,  effectivity = 0.5,  output_limit_mw = nil, health = 1800, size_multiplier = 3 },
   -- Tier 3 high-pressure turbine train: 500 x 90 kJ x 1.0 = 45 MW
   hp          = { fluid_per_second = 375, effectivity = 1,    output_limit_mw = nil, health = 2200, size_multiplier = 3 },
+  -- Tier 4 CO2 turbine-generator: 250 x 2 MJ x 0.3 = 150 MW. The 0.3 is the share of the HOT CO2's fuel value delivered as
+  -- electricity per pass; with a recuperator the heater only has to add (1 - 0.4) of that fuel value, so the plant
+  -- turns 150 / 300 = 50 % of its sodium heat into electricity (30 % without a recuperator).
+  sco2        = { fluid_per_second = 250, effectivity = 0.3,  output_limit_mw = nil, health = 2500, size_multiplier = 3 },
 }
 
 --------------------------------------------------------------------------------------------------
@@ -118,6 +126,7 @@ C.stack = {
     exhaust_steam = 500,
     flue_gas      = 200,
     hot_exhaust   = 200,
+    co2           = 200,   -- Tier 4: surplus CO2 from the kiln
   },
 }
 
@@ -338,6 +347,170 @@ C.research = {
   startup_energy_storage = { count = 150, time = 30 },
   pressurized_water_power = { count = 500, time = 45 },
   nuclear_reprocessing    = { count = 300, time = 45 },
+  sodium_coolant          = { count = 400, time = 45 },
+  fast_breeder_power      = { count = 800, time = 60 },
+}
+
+--------------------------------------------------------------------------------------------------
+-- TIER 4: fast breeder with supercritical CO2 generation (docs/FAST_BREEDER.md)
+--
+-- Balance rules checked at load time (a warning goes to factorio-current.log):
+--   * sodium_unit flow (derived)               should equal sodium_exchanger.hot_primary_per_second / (units per exchanger)
+--   * sodium_exchanger.cool_primary_per_second should equal hot_primary_per_second, secondary in = secondary out
+--   * co2_heater.sodium_per_second             should equal sodium_exchanger.secondary_per_second
+--   * the heater's two recipes carry the same heat: co2 x (sco2_hot - preheat) = co2_direct x sco2_hot
+--   * turbines.sco2.fluid_per_second           should equal compressor / recuperator / cooler / heater (recuperated) flow
+--   * the recuperator may not return more heat than the turbine exhaust holds
+--   * breeding: fissile and heavy metal are conserved or lost, never created; the blankets' bred fissile must make the
+--     breeding ratio land between 1 and 1.5, and the cycle must eat depleted uranium and make waste
+--------------------------------------------------------------------------------------------------
+
+-- Fast-breeder reactor core (vanilla reactor prototype, like the Tier 3 core; the same rod / SCRAM / afterheat script).
+-- Burns MOX or starter assemblies (own fuel category, the Tier 3 core cannot burn them and vice versa). Its own neighbour
+-- category: breeder cores boost each other (+neighbour_bonus per adjacent core, as in the base game), PWR cores do not join.
+-- See C.reactor for the meaning of the individual keys.
+C.fast_breeder = {
+  power_mw                 = 300,
+  neighbour_bonus          = 1,
+  specific_heat_mj         = 50,
+  max_temperature_c        = 2550,
+  health                   = 2000,
+  fuel_slots               = 2,
+  spent_slots              = 2,
+  rod_speed_pct_per_second   = 1,
+  scram_speed_pct_per_second = 25,
+  scram_lockout_s          = 600,
+  rod_exponent             = 1,
+  decay_fraction           = 0.2,
+  decay_rise_s             = 60,
+  decay_fall_s             = 600,
+  warning_temperature_c    = 2100,   -- above Heat pipe II's 2000 degC: the pipes never reach the warning before the core does
+  meltdown_temperature_c   = 2500,
+  meltdown_grace_s         = 5,
+}
+
+-- Heat pipe II: the vanilla heat pipe (1000 degC) is too cold for a breeder core, which runs far hotter. Same conduction
+-- as the vanilla pipe, higher limit. The sodium circulation unit's heat connection takes the same limit, otherwise it would
+-- cap a pipe network at 1000 degC. Pipes also join the vanilla heat pipes (they connect to each other).
+C.heat_pipe_2 = { max_temperature_c = 2000, health = 300 }
+
+-- Sodium circulation unit: heat exchanger of the primary loop (vanilla heat exchanger). Same idea as primary_unit:
+-- cool primary sodium (15 degC) is heated to target_c, one unit carries (target_c - 15) kJ (heat capacity 1 kJ per degC).
+-- Derived: units per second = power / (target_c - 15 kJ) = 100 MW / 500 kJ = 200 /s.
+C.sodium_unit = {
+  power_mw        = 100,
+  target_c        = 515,
+  min_working_c   = 560,   -- only draws heat while the core is above this
+  hot_fluid_max_c = 600,
+  health          = 800,
+}
+
+-- Intermediate sodium exchanger: hot primary sodium + cool secondary sodium -> cool primary sodium + hot secondary sodium.
+-- Heat passes 1:1 (a unit of hot secondary sodium carries as much as a unit of hot primary sodium). Its sodium pumps
+-- need grid power: without power the primary loop stops and the core loses its cooling (keep a startup bank).
+C.sodium_exchanger = {
+  hot_primary_per_second  = 600,   -- = 300 MW at 500 kJ per unit = the heat of one 300 MW core
+  cool_primary_per_second = 600,
+  secondary_per_second    = 600,
+  power_mw                = 3,
+  idle_drain_kw           = 100,
+  health                  = 1500,
+  size                    = 5,
+}
+
+-- Sodium-to-CO2 heater: hot secondary sodium heats CO2. Two recipes, chosen by the heater itself from the fluid at its
+-- CO2 inlet (scripts/heaters.lua): preheated CO2 (from a recuperator) or cold compressed CO2 (straight from the
+-- compressor). Both burn the same sodium flow (the heater's heat rating); the cold feed simply yields less hot CO2.
+--   recuperated_co2_per_second : hot CO2 made per second from preheated CO2 (250 x (2 - 0.8) MJ = 300 MW)
+--   direct_co2_per_second      : hot CO2 made per second from cold CO2 (150 x 2 MJ = 300 MW)
+C.co2_heater = {
+  sodium_per_second          = 600,
+  recuperated_co2_per_second = 250,
+  direct_co2_per_second      = 150,
+  power_kw                   = 1000,
+  idle_drain_kw              = 50,
+  health                     = 1500,
+  size                       = 5,
+}
+
+-- Supercritical-CO2 compressor (the working fluid's pump: this is where the cycle's own power demand sits).
+C.sco2_compressor = {
+  co2_per_second = 250,
+  power_mw       = 15,
+  idle_drain_kw  = 200,
+  health         = 1200,
+  size           = 5,
+}
+
+-- Recuperator: turbine exhaust gives its heat to the compressed CO2 (exhaust passes through, the compressed CO2 leaves
+-- preheated). Removing it does not stop anything: the heater then takes the cold feed and needs more heat per MW.
+C.recuperator = {
+  co2_per_second = 250,
+  power_kw       = 500,
+  idle_drain_kw  = 50,
+  health         = 1200,
+  size           = 5,
+}
+
+-- CO2 cooler: air-cooled, rejects the remaining waste heat (fans, no coolant). Turns exhaust back into CO2.
+C.sco2_cooler = {
+  exhaust_per_second = 250,
+  power_mw           = 6,
+  idle_drain_kw      = 100,
+  health             = 1000,
+  size               = 5,
+}
+
+-- Hot-fluid storage tank: buffer for heat (hot sodium, hot CO2) or any other fluid. Vanilla storage tank, bigger.
+C.hot_tank = { capacity = 100000, health = 1500 }
+
+-- Shielded fuel fabricator: MOX, starter and blanket assemblies (recipes below).
+C.fuel_fabricator = { power_mw = 4, idle_drain_kw = 100, health = 1500, size = 5 }
+
+-- Blanket irradiation channel: a blanket assembly sits in it next to a running breeder core and is irradiated at a speed
+-- that follows the core's ACTUAL fission power (scripts/breeders.lua): every channel touching a core gets an equal
+-- share of the core's neutron budget, so more channels do not mean more breeding, only faster use of the same flux.
+--   channel_time_s : recipe time when the channel gets full flux (duty 1); the real duty is
+--                    channel_time_s x core power / (loaded channels x blanket.irradiation_gj)
+--   reach_tiles    : a channel belongs to the nearest breeder core whose edge is within this many tiles of its own
+C.blanket_channel = { channel_time_s = 600, reach_tiles = 1.5, health = 1000, size = 3 }
+
+-- Fuel cycle. Fissile units ("fu") are the common currency: 1 plutonium-bearing material = 1 uranium-235 = 1 fu, and
+-- burning 1 fu releases gj_per_fissile (a vanilla fuel cell: 0.1 U-235 for 8 GJ). Heavy metal (hm) = fu + depleted uranium.
+--   mox / starter : assembly recipe; burnt_fissile is how much of its fissile content is fissioned (energy = x 80 GJ)
+--   blanket       : irradiation_gj = core fission energy it takes to breed one blanket assembly
+--   core_reprocessing / blanket_reprocessing : what a cooled spent core assembly / a bred blanket assembly gives back.
+--                   residue holds the fission products plus the processing losses (what fission and chemistry destroy)
+-- Net per MOX assembly (defaults): core gives back 4 of 6 fu, 1.33 blankets are bred meanwhile (+2.67 fu), 4 fu are
+-- burnt -> breeding ratio (6.67 - 6 + 4) / 4 = 1.17. Without blankets it is (4 - 6 + 4) / 4 = 0.5, so the fissile stock shrinks.
+C.breeder_fuel = {
+  gj_per_fissile = 80,
+  mox     = { pbm = 6,  du = 24, claddings = 2, burnt_fissile = 4 },
+  starter = { u235 = 6, du = 24, claddings = 2, burnt_fissile = 4 },
+  blanket = { du = 30, claddings = 1, irradiation_gj = 240 },
+  core_reprocessing    = { pbm = 4, du = 21, residue = 5 },
+  blanket_reprocessing = { pbm = 2, du = 27, residue = 1 },
+  fabrication_time_s = 30,
+}
+
+-- Sodium electrolyzer (molten-salt electrolysis): dry sodium salt -> sodium + chlorine. Two recipes, chosen by hand
+-- (like the water treatment plant): primary-loop sodium or secondary-loop sodium, so the two loops can never be mixed up.
+-- Filling a plant is the expensive part (see docs/FAST_BREEDER.md): the loops lose nothing afterwards.
+C.electrolyzer = {
+  time_s = 4, salt = 10, sodium = 100, chlorine = 120,  -- per craft: 25 sodium/s from 2.5 salt/s (= 62 brine/s)
+  power_mw = 20, idle_drain_kw = 200, health = 1500, size = 5,
+}
+
+-- Coolant and working-fluid chemistry (vanilla chemical plants):
+--   brine   : water + stone -> brine      salt : brine -> dry sodium salt      kiln : stone -> lime + CO2
+--   chlorine routes: neutralization (chlorine + lime, nothing left over) and chlorinated plastic (more plastic per gas)
+C.sodium_chemistry = {
+  brine_water = 100, brine_stone = 5, brine_out = 100,
+  salt_brine = 100, salt_out = 4,
+  kiln_stone = 4, kiln_lime = 2, kiln_co2 = 40, kiln_calcite = 2,
+  neutralize_chlorine = 100, neutralize_lime = 2,
+  plastic_gas = 20, plastic_chlorine = 10, plastic_coal = 1, plastic_out = 3,
+  concrete_lime = 3, concrete_stone_brick = 5, concrete_water = 50, concrete_out = 10,
 }
 
 return C

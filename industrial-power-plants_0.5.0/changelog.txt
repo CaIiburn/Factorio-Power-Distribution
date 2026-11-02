@@ -1,4 +1,32 @@
 ---------------------------------------------------------------------------------------------------
+Version: 0.5.0
+Date: 2026-11-02
+  Features:
+    - Tier 4, fast breeder with supercritical-CO2 generation (docs/FAST_BREEDER.md). Two researches: Sodium coolant
+      production and Fast-breeder power.
+    - Heat pipe II (2000 degC, vanilla conduction; upgrade of the vanilla heat pipe).
+    - Fast-breeder reactor (300 MW, +100 % per neighbouring breeder core, warning at 2100 degC, explosion at 2500 degC): the Tier 3 control-rod script now drives both core
+      types. Burns MOX or starter assemblies (new fuel category).
+    - Sodium circulation unit, intermediate sodium exchanger, sodium-to-CO2 heater, supercritical CO2 compressor, CO2
+      turbine-generator (150 MW), recuperator, CO2 cooler, hot-fluid storage tank, shielded fuel fabricator, sodium electrolyzer.
+    - The heater chooses between a preheated-CO2 and a cold-CO2 recipe by itself (scripts/heaters.lua): without a recuperator the
+      plant still runs, at 30 % instead of 50 % efficiency.
+    - Blanket irradiation channel (scripts/breeders.lua): blankets are bred at the actual fission power of the core they touch.
+    - Fuel cycle: MOX / starter / blanket assemblies, spent core assemblies (cooled in the Tier 3 pool), reprocessing of spent
+      cores and bred blankets (breeding ratio 1.17 with blankets, 0.5 without). Plutonium-bearing material is now used.
+    - Coolant chemistry in vanilla chemical plants: brine, dry sodium salt, lime kiln (lime + CO2), chlorine
+      neutralization, chlorinated plastic, lime concrete. Two sodium electrolysis recipes (primary / secondary loop).
+    - New components: refractory alloy, ceramic seal, precision rotor, refractory rotor, pressure housing, recuperator matrix,
+      precision handling machinery, electrode assembly, thermal insulation.
+    - The exhaust stack vents surplus CO2 and refuses sodium, chlorine and the working CO2 states.
+    - /ipp-breeder-debug prints blanket channel state; /ipp-reactor-debug now lists both core types.
+  Changes:
+    - The spent-fuel pool and the reprocessing plant no longer have a fixed recipe (they take the Tier 4 recipes too).
+  Bugfixes:
+    - Build, clone and remove events were registered separately by the exhaust stack and reactor scripts; the engine keeps one
+      handler per event, so the second registration replaced the first (stacks built after loading were never polled).
+      scripts/events.lua now registers each event once for every script.
+---------------------------------------------------------------------------------------------------
 Version: 0.4.2
 Date: 2026-10-30
   Features:
