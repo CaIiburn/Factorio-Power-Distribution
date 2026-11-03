@@ -42,8 +42,8 @@ C.fluids = {
   fuel_gas_mj         = 1,     -- MJ per unit of pressurised fuel gas
   hp_steam_kj         = 90,    -- kJ per unit of high-pressure steam (already net of the thermal cycle's losses)
   -- Tier 4 (supercritical CO2). Energies are measured from the compressor outlet (compressed CO2 = 0).
-  sco2_hot_mj         = 2,     -- MJ per unit of hot CO2 (turbine fuel value): what the heater adds to a COLD feed
-  sco2_recuperated_mj = 0.8,   -- MJ per unit of preheated CO2: what the recuperator has already added (must not exceed
+  sco2_hot_mj         = 1,     -- MJ per unit of hot CO2 (turbine fuel value): what the heater adds to a COLD feed
+  sco2_recuperated_mj = 0.5,   -- MJ per unit of preheated CO2: what the recuperator has already added (must not exceed
                                -- the heat the turbine exhaust still holds, (1 - turbine effectivity) x sco2_hot_mj)
 }
 
@@ -63,10 +63,10 @@ C.turbines = {
   gas         = { fluid_per_second = 100,  effectivity = 0.5,  output_limit_mw = nil, health = 1800, size_multiplier = 3 },
   -- Tier 3 high-pressure turbine train: 500 x 90 kJ x 1.0 = 45 MW
   hp          = { fluid_per_second = 375, effectivity = 1,    output_limit_mw = nil, health = 2200, size_multiplier = 3 },
-  -- Tier 4 CO2 turbine-generator: 250 x 2 MJ x 0.3 = 150 MW. The 0.3 is the share of the HOT CO2's fuel value delivered as
-  -- electricity per pass; with a recuperator the heater only has to add (1 - 0.4) of that fuel value, so the plant
-  -- turns 150 / 300 = 50 % of its sodium heat into electricity (30 % without a recuperator).
-  sco2        = { fluid_per_second = 250, effectivity = 0.3,  output_limit_mw = nil, health = 2500, size_multiplier = 3 },
+  -- Tier 4 CO2 turbine-generator: 180 x 1 MJ x 0.4 = 72 MW. The 0.4 is the share of the HOT CO2's fuel value delivered as
+  -- electricity per pass; with a recuperator the heater only has to add half of that fuel value (sco2_recuperated_mj), so the
+  -- cycle turns 0.4 / 0.5 = 80 % of the sodium heat into electricity (40 % without a recuperator).
+  sco2        = { fluid_per_second = 180, effectivity = 0.4,  output_limit_mw = nil, health = 2500, size_multiplier = 3 },
 }
 
 --------------------------------------------------------------------------------------------------
@@ -355,11 +355,11 @@ C.research = {
 -- TIER 4: fast breeder with supercritical CO2 generation (docs/FAST_BREEDER.md)
 --
 -- Balance rules checked at load time (a warning goes to factorio-current.log):
---   * sodium_unit flow (derived)               should equal sodium_exchanger.hot_primary_per_second / (units per exchanger)
---   * sodium_exchanger.cool_primary_per_second should equal hot_primary_per_second, secondary in = secondary out
+--   * sodium_exchanger takes a whole number of circulation units' flow; cool primary = hot primary; secondary in = secondary out
 --   * co2_heater.sodium_per_second             should equal sodium_exchanger.secondary_per_second
 --   * the heater's two recipes carry the same heat: co2 x (sco2_hot - preheat) = co2_direct x sco2_hot
---   * turbines.sco2.fluid_per_second           should equal compressor / recuperator / cooler / heater (recuperated) flow
+--   * the compressor, recuperator and cooler handle the same flow
+--   * the reference plant (D.reference, a 2x2 core array) needs whole numbers of every building
 --   * the recuperator may not return more heat than the turbine exhaust holds
 --   * breeding: fissile and heavy metal are conserved or lost, never created; the blankets' bred fissile must make the
 --     breeding ratio land between 1 and 1.5, and the cycle must eat depleted uranium and make waste
@@ -370,7 +370,8 @@ C.research = {
 -- category: breeder cores boost each other (+neighbour_bonus per adjacent core, as in the base game), PWR cores do not join.
 -- See C.reactor for the meaning of the individual keys.
 C.fast_breeder = {
-  power_mw                 = 300,
+  size                     = 7,      -- footprint in tiles (size x size): odd, 3 to 7 (the engine allows 32 heat connections: 4 per tile of side)
+  power_mw                 = 300,    -- base heat; each neighbouring core adds neighbour_bonus x this (a 2x2 array: 4 x 300 x 3 = 3600 MW)
   neighbour_bonus          = 1,
   specific_heat_mj         = 50,
   max_temperature_c        = 2550,
@@ -389,6 +390,11 @@ C.fast_breeder = {
   meltdown_grace_s         = 5,
 }
 
+-- Reference plant (used by the load-time balance checks, the tests and docs/FAST_BREEDER.md): a cores_x x cores_y array of
+-- breeder cores. 2 x 2 gives 4 x 300 MW x (1 + 2 neighbours) = 3600 MW of heat, which the default ratings turn into 2.5 GW net with
+-- 48 circulation units, 24 intermediate exchangers and heaters, 40 turbines and 36 compressors, recuperators and coolers.
+C.reference_plant = { cores_x = 2, cores_y = 2 }
+
 -- Heat pipe II: the vanilla heat pipe (1000 degC) is too cold for a breeder core, which runs far hotter. Same conduction
 -- as the vanilla pipe, higher limit. The sodium circulation unit's heat connection takes the same limit, otherwise it would
 -- cap a pipe network at 1000 degC. Pipes also join the vanilla heat pipes (they connect to each other).
@@ -396,9 +402,9 @@ C.heat_pipe_2 = { max_temperature_c = 2000, health = 300 }
 
 -- Sodium circulation unit: heat exchanger of the primary loop (vanilla heat exchanger). Same idea as primary_unit:
 -- cool primary sodium (15 degC) is heated to target_c, one unit carries (target_c - 15) kJ (heat capacity 1 kJ per degC).
--- Derived: units per second = power / (target_c - 15 kJ) = 100 MW / 500 kJ = 200 /s.
+-- Derived: units per second = power / (target_c - 15 kJ) = 75 MW / 500 kJ = 150 /s.
 C.sodium_unit = {
-  power_mw        = 100,
+  power_mw        = 75,
   target_c        = 515,
   min_working_c   = 560,   -- only draws heat while the core is above this
   hot_fluid_max_c = 600,
@@ -409,11 +415,11 @@ C.sodium_unit = {
 -- Heat passes 1:1 (a unit of hot secondary sodium carries as much as a unit of hot primary sodium). Its sodium pumps
 -- need grid power: without power the primary loop stops and the core loses its cooling (keep a startup bank).
 C.sodium_exchanger = {
-  hot_primary_per_second  = 600,   -- = 300 MW at 500 kJ per unit = the heat of one 300 MW core
-  cool_primary_per_second = 600,
-  secondary_per_second    = 600,
-  power_mw                = 3,
-  idle_drain_kw           = 100,
+  hot_primary_per_second  = 300,   -- = 150 MW at 500 kJ per unit = two circulation units
+  cool_primary_per_second = 300,
+  secondary_per_second    = 300,
+  power_mw                = 0.5,
+  idle_drain_kw           = 25,
   health                  = 1500,
   size                    = 5,
 }
@@ -421,23 +427,23 @@ C.sodium_exchanger = {
 -- Sodium-to-CO2 heater: hot secondary sodium heats CO2. Two recipes, chosen by the heater itself from the fluid at its
 -- CO2 inlet (scripts/heaters.lua): preheated CO2 (from a recuperator) or cold compressed CO2 (straight from the
 -- compressor). Both burn the same sodium flow (the heater's heat rating); the cold feed simply yields less hot CO2.
---   recuperated_co2_per_second : hot CO2 made per second from preheated CO2 (250 x (2 - 0.8) MJ = 300 MW)
---   direct_co2_per_second      : hot CO2 made per second from cold CO2 (150 x 2 MJ = 300 MW)
+--   recuperated_co2_per_second : hot CO2 made per second from preheated CO2 (300 x (1 - 0.5) MJ = 150 MW)
+--   direct_co2_per_second      : hot CO2 made per second from cold CO2 (150 x 1 MJ = 150 MW)
 C.co2_heater = {
-  sodium_per_second          = 600,
-  recuperated_co2_per_second = 250,
+  sodium_per_second          = 300,
+  recuperated_co2_per_second = 300,
   direct_co2_per_second      = 150,
-  power_kw                   = 1000,
-  idle_drain_kw              = 50,
+  power_kw                   = 250,
+  idle_drain_kw              = 10,
   health                     = 1500,
   size                       = 5,
 }
 
 -- Supercritical-CO2 compressor (the working fluid's pump: this is where the cycle's own power demand sits).
 C.sco2_compressor = {
-  co2_per_second = 250,
-  power_mw       = 15,
-  idle_drain_kw  = 200,
+  co2_per_second = 200,
+  power_mw       = 8,
+  idle_drain_kw  = 100,
   health         = 1200,
   size           = 5,
 }
@@ -445,18 +451,18 @@ C.sco2_compressor = {
 -- Recuperator: turbine exhaust gives its heat to the compressed CO2 (exhaust passes through, the compressed CO2 leaves
 -- preheated). Removing it does not stop anything: the heater then takes the cold feed and needs more heat per MW.
 C.recuperator = {
-  co2_per_second = 250,
-  power_kw       = 500,
-  idle_drain_kw  = 50,
+  co2_per_second = 200,
+  power_kw       = 50,
+  idle_drain_kw  = 5,
   health         = 1200,
   size           = 5,
 }
 
 -- CO2 cooler: air-cooled, rejects the remaining waste heat (fans, no coolant). Turns exhaust back into CO2.
 C.sco2_cooler = {
-  exhaust_per_second = 250,
-  power_mw           = 6,
-  idle_drain_kw      = 100,
+  exhaust_per_second = 200,
+  power_mw           = 1.8,
+  idle_drain_kw      = 50,
   health             = 1000,
   size               = 5,
 }

@@ -8,37 +8,43 @@ Researched in two steps: **Sodium coolant production** (brine, salt, electrolysi
 then **Fast-breeder power** (needs Nuclear reprocessing, Kovarex enrichment and Sodium coolant production; costs production
 science). The Tier 3 reprocessing plant, spent-fuel pool, dry casks, vitrifier, water treatment and startup bank are reused.
 
-## The plant at a glance (default numbers, one core)
+## The reference plant
+
+The ratings are designed around a **2x2 array of breeder cores**: 4 cores x 300 MW x (1 + 2 neighbours) = **3600 MW of heat**, which
+the plant turns into **2.5 GW net**. `config.reference_plant` sets the array; the numbers below are computed from the ratings
+(`D.reference`, checked by the tests; the load-time checks warn if a rating change makes them fractional).
+
+| Building | Count | Rating each | Together |
+|---|---|---|---|
+| Fast-breeder reactor (7x7, `fast_breeder.size`) | 4 | 300 MW base, +100 % per neighbouring core (x3 in a 2x2) | 3600 MW |
+| Sodium circulation unit* | 48 | 75 MW, 150 primary sodium/s, 515 °C | 3600 MW, 7200 sodium/s |
+| Intermediate sodium exchanger | 24 | 300 sodium/s = 150 MW (2 circulation units), 0.5 MW pumps | 3600 MW |
+| Sodium-to-CO2 heater | 24 | 300 sodium/s = 150 MW, 0.25 MW | 7200 hot CO2/s |
+| CO2 turbine-generator | 40 | 180 hot CO2/s x 1 MJ x 0.4 = 72 MW | 2880 MW gross |
+| Supercritical CO2 compressor | 36 | 200 CO2/s, 8 MW | 7200 CO2/s |
+| Recuperator | 36 | 200 CO2/s, returns 100 MW, 0.05 MW | 3600 MW returned |
+| CO2 cooler | 36 | 200 exhaust CO2/s, 1.8 MW fans | |
+| Heat pipe II* | as needed | vanilla conduction, 2000 °C (vanilla: 1000 °C) | |
+| Blanket irradiation channel* | 3+ per core | no power | |
+| Shielded fuel fabricator, sodium electrolyzer, hot-fluid tank | as needed | 4 MW / 20 MW / 100 000 units | |
+
+\* not in the plan's building table; see "Implementation decisions". Heat pipe II (made from a vanilla heat pipe, refractory alloy and a
+ceramic seal, researched with Fast-breeder power) fast-replaces vanilla heat pipes and connects to them. It stays 100 °C below the
+core's warning (2100 °C; explosion 2500 °C), so the pipes are never the first thing to give; the circulation unit's heat connection
+takes the same 2000 °C limit.
+
+Net output: 2880 MW gross - 379 MW own use (compressors 292, coolers 67, exchangers 13, heaters 6, recuperators 2; working power plus idle drain at
+full load) = **2501 MW**. Every flow balances exactly: 48 x 150 = 24 x 300 sodium/s, 24 x 300 = 40 x 180 = 36 x 200 CO2/s. All the plant's
+pumps and fans need grid power, as in Tier 3: without power the primary loop stops and the core loses its cooling, so keep a startup bank.
+
+Each core is a **7x7** block (`fast_breeder.size`, odd, 3 to 7). It has a heat connection on every tile of every side (a circulation unit or a
+heat pipe can sit against any tile) and one neighbour point per side. The core's graphics, collision box and connection points all scale with
+the size; the vanilla core stays 5x5. The vanilla "connection patch" sprites are drawn per vanilla connection, so the core has none (cosmetic).
 
 ```
-core 300 MW  --3x circulation unit (100 MW, 200 primary sodium/s each)-->  primary loop (600/s)
-  --> intermediate sodium exchanger (3 MW pumps) -->  secondary loop (600/s)
-  --> sodium-to-CO2 heater -->  hot CO2 250/s  --> CO2 turbine-generator 150 MW
-turbine exhaust --> recuperator (gives 200 MW back to the compressed CO2) --> cooler (6 MW fans) --> compressor (15 MW) --> recuperator --> heater
+4 cores 3600 MW --48 circulation units--> primary loop 7200/s --24 exchangers--> secondary loop 7200/s --24 heaters--> hot CO2 7200/s
+ --> 40 turbines (2880 MW) --> exhaust --> 36 recuperators (give 3600 MW back to the compressed CO2) --> 36 coolers --> 36 compressors --> recuperators --> heaters
 ```
-
-| Building | Purpose | Rating |
-|---|---|---|
-| Fast-breeder reactor | heat, uses MOX / starter assemblies; same rods, SCRAM, afterheat and meltdown as the Tier 3 core | 300 MW, +100 % per neighbouring breeder core; warning 2100 °C, explosion 2500 °C |
-| Heat pipe II* | connects the core to the circulation units | vanilla conduction, 2000 °C (vanilla: 1000 °C) |
-| Sodium circulation unit* | the "heat exchanger" of the primary loop: core heat in, hot primary sodium out | 100 MW, 200 sodium/s, 515 °C |
-| Blanket irradiation channel* | holds a blanket assembly next to a running core | no power |
-| Intermediate sodium exchanger | primary sodium gives its heat to secondary sodium, nothing mixes | 600/s, 3 MW |
-| Sodium-to-CO2 heater | secondary sodium heats CO2 | 300 MW, 1 MW |
-| Supercritical CO2 compressor | the working fluid's pump | 250/s, 15 MW |
-| CO2 turbine-generator | burns hot CO2 | 250/s x 2 MJ x 0.3 = 150 MW |
-| Recuperator | exhaust heat back into the compressed CO2 | 250/s, 0.5 MW |
-| CO2 cooler | air-cooled, rejects the rest | 250/s, 6 MW |
-| Shielded fuel fabricator | MOX, starter and blanket assemblies | 4 MW |
-| Sodium electrolyzer | primary or secondary sodium + chlorine from dry salt | 25 sodium/s, 20 MW |
-| Hot-fluid storage tank | heat buffer | 100 000 units |
-
-\* not in the plan's building table; see "Implementation decisions". Heat pipe II (researched with Fast-breeder power, made from a vanilla heat pipe,
-refractory alloy and a ceramic seal) fast-replaces vanilla heat pipes and connects to them. It stays 100 °C below the core's warning, so the
-pipes are never the first thing to give; the circulation unit's heat connection takes the same 2000 °C limit.
-
-Net output of one train is about 124 MW after the plant's own use (the compressor, cooler and pumps). All the plant's pumps and
-fans need grid power, as in Tier 3: without power the primary loop stops and the core loses its cooling, so keep a startup bank.
 
 ## Sodium
 
@@ -59,10 +65,10 @@ Coolant manufacture, all in vanilla chemical plants except the electrolysis:
 The kiln's CO2 is the working fluid of the CO2 cycle, so it also fills that loop; surplus CO2 can be vented
 by an exhaust stack.
 
-**Initial filling is expensive, routine consumption is zero.** Every recipe in the loops returns what it takes. Filling the
-machines alone needs about 10 800 sodium (1080 salt, 27 000 brine, 27 000 water and 1350 stone, 7 minutes of one
-electrolyzer); every pipe segment and tank adds to that, and sodium is lost only when a pipe or machine is destroyed (the
-electrolyzer then supplies the replacement). Chlorine is a by-product of that filling.
+**Initial filling is expensive, routine consumption is zero.** Every recipe in the loops returns what it takes. Filling the reference plant's
+machines alone needs about 57 600 sodium (one second of flow in every sodium port): 5760 dry salt, 144 000 brine (144 000 water and 7200 stone), and
+38 minutes of 25 sodium/s per electrolyzer, so you want dozens of them. Every pipe segment and tank adds to that, and sodium is lost only
+when a pipe or machine is destroyed (the electrolyzer then supplies the replacement). Chlorine (120 per 100 sodium) is a by-product of that filling.
 
 **Chlorine always has a way out** (both unlock together with the electrolysis): *chlorine neutralization* (100 chlorine + 2 lime,
 nothing left over) and *chlorinated plastic* (20 petroleum gas + 10 chlorine + 1 coal -> 3 plastic instead of 2). The exhaust stack
@@ -71,22 +77,22 @@ plan mentions, is not implemented: the water treatment plant makes the three Tie
 
 ## The CO2 cycle and the recuperator
 
-Fluids (energies measured from the compressor outlet): CO2 -> *compressed CO2* (0) -> *preheated CO2* (0.8 MJ/unit)
--> *hot CO2* (2 MJ/unit, the turbine's fuel value) -> turbine exhaust -> CO2. Like every turbine in the mod, the
+Fluids (energies measured from the compressor outlet): CO2 -> *compressed CO2* (0) -> *preheated CO2* (0.5 MJ/unit)
+-> *hot CO2* (1 MJ/unit, the turbine's fuel value) -> turbine exhaust -> CO2. Like every turbine in the mod, the
 CO2 turbine burns its fluid as fuel at default temperature, so it connects without temperature surprises.
 
 **Removing the recuperator does not stop anything, it makes the plant need far more heat.** The heater has two recipes that
-burn the same 600 sodium/s (300 MW):
+burn the same 300 sodium/s (150 MW):
 
-| Feed | Hot CO2 made | Turbine output | Efficiency |
+| Feed | Hot CO2 made | Turbine output (0.4 of its fuel value) | Cycle efficiency |
 |---|---|---|---|
-| preheated CO2 (recuperator) | 250/s | 150 MW | 50 % |
-| cold CO2 (straight from the compressor) | 150/s | 90 MW | 30 % |
+| preheated CO2 (recuperator) | 300/s | 120 MW | 80 % |
+| cold CO2 (straight from the compressor) | 150/s | 60 MW | 40 % |
 
-So without the recuperator the same electricity costs 1.67 times the heat (one train gives 90 MW instead of 150 MW, or needs a
-second core for the same output). The heater chooses the recipe itself every second (`scripts/heaters.lua`) from the fluid at
+So without the recuperator the same electricity costs **twice the heat** (the reference plant would make 1440 MW gross from its 3600 MW of
+heat instead of 2880 MW, and you would need twice the cores). The heater chooses the recipe itself every second (`scripts/heaters.lua`) from the fluid at
 its CO2 inlet (the right-hand port of the north face when unrotated), so adding or removing a recuperator needs no
-clicking. The recuperator hands back 200 MW of the 350 MW the exhaust still holds (the config check refuses a recuperator that
+clicking. The recuperator hands back 100 MW of the 120 MW the exhaust still holds (the config check refuses a recuperator that
 returns more than the exhaust has).
 
 ## Fuel cycle
@@ -106,7 +112,7 @@ Per MOX assembly burnt, 1.33 blankets are bred in the meantime: 6.67 PBM come ba
 1.17**, consuming 7 depleted uranium and making 6.3 residue. The core alone (no blankets) returns 4 of 6: ratio 0.5, the fissile stock
 shrinks. Fission and processing losses are in the residue; heavy metal is never created (the tests check every recipe). The enriched
 uranium for the first breeder is a one-time cost; after that the cycle needs depleted uranium only, so a delivered GWh needs essentially
-no virgin enriched uranium, against 120 U-235 per GWh of electricity in Tier 3 without reprocessing.
+no virgin enriched uranium, against 120 U-235 per GWh of electricity in Tier 3 without reprocessing. (A 2x2 array at full power burns one MOX assembly every 89 s, about 0.7 a minute.)
 
 There is **no closed recipe** that returns its inputs and adds fissile material without eating depleted uranium: blankets are the only
 source of surplus, they need depleted uranium, and they only breed while a core actually burns fuel.

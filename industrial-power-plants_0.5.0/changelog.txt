@@ -8,9 +8,11 @@ Date: 2026-11-02
     - Fast-breeder reactor (300 MW, +100 % per neighbouring breeder core, warning at 2100 degC, explosion at 2500 degC): the Tier 3 control-rod script now drives both core
       types. Burns MOX or starter assemblies (new fuel category).
     - Sodium circulation unit, intermediate sodium exchanger, sodium-to-CO2 heater, supercritical CO2 compressor, CO2
-      turbine-generator (150 MW), recuperator, CO2 cooler, hot-fluid storage tank, shielded fuel fabricator, sodium electrolyzer.
+      turbine-generator (72 MW), recuperator, CO2 cooler, hot-fluid storage tank, shielded fuel fabricator, sodium electrolyzer.
     - The heater chooses between a preheated-CO2 and a cold-CO2 recipe by itself (scripts/heaters.lua): without a recuperator the
-      plant still runs, at 30 % instead of 50 % efficiency.
+      plant still runs, at 40 % instead of 80 % cycle efficiency.
+    - Reference plant (config.reference_plant, default a 2x2 array of 7x7 breeder cores, 3600 MW): 48 circulation units, 24 exchangers,
+      24 heaters, 40 turbines, 36 compressors / recuperators / coolers, 2.5 GW net. Reactor footprint is config fast_breeder.size.
     - Blanket irradiation channel (scripts/breeders.lua): blankets are bred at the actual fission power of the core they touch.
     - Fuel cycle: MOX / starter / blanket assemblies, spent core assemblies (cooled in the Tier 3 pool), reprocessing of spent
       cores and bred blankets (breeding ratio 1.17 with blankets, 0.5 without). Plutonium-bearing material is now used.

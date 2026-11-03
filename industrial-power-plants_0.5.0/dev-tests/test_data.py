@@ -696,8 +696,9 @@ if amt(ex, 'in', "ipp-secondary-sodium") != amt(ex, 'out', "ipp-secondary-sodium
 heat_primary = amt(ex, 'in', "ipp-primary-sodium-hot") * D.SODIUM_UNIT_KJ / 1000
 heat_secondary = amt(ex, 'out', "ipp-secondary-sodium-hot") * D.SODIUM_UNIT_KJ / 1000
 if heat_secondary > heat_primary + 1e-9: errs.append("exchanger creates heat")
-if abs(heat_primary - FBc.power_mw) > 1e-9: errs.append("one exchanger must carry the heat of one core (%.1f vs %.1f MW)" % (heat_primary, FBc.power_mw))
-if abs(SEc.hot_primary_per_second - 3 * D.SODIUM_FLOW) > 1e-9: errs.append("one exchanger != three circulation units")
+units_per_exchanger = SEc.hot_primary_per_second / D.SODIUM_FLOW
+if abs(units_per_exchanger - round(units_per_exchanger)) > 1e-9: errs.append("an exchanger must take a whole number of circulation units (%.2f)" % units_per_exchanger)
+if abs(heat_primary - SEc.hot_primary_per_second * D.SODIUM_UNIT_KJ / 1000) > 1e-9: errs.append("exchanger recipe != config")
 hw, hd = recipes["ipp-co2-heating-recuperated"], recipes["ipp-co2-heating-direct"]
 for r_, feed in ((hw, "ipp-sco2-warm"), (hd, "ipp-sco2")):
     if amt(r_, 'in', "ipp-secondary-sodium-hot") != amt(r_, 'out', "ipp-secondary-sodium"): errs.append(r_.name + ": secondary loop gains or loses sodium")
@@ -708,17 +709,18 @@ added_w = amt(hw, 'out', "ipp-sco2-hot") * (H_MJ - R_MJ)
 added_d = amt(hd, 'out', "ipp-sco2-hot") * H_MJ
 if added_w > heat_in + 1e-9 or added_d > heat_in + 1e-9: errs.append("heater makes more hot CO2 energy than the sodium brings")
 if abs(added_w - added_d) > 1e-9: errs.append("the heater's two recipes must use the same heat")
-if amt(hw, 'out', "ipp-sco2-hot") != tb.max_fluid_usage * 60 and abs(amt(hw, 'out', "ipp-sco2-hot") - CF.turbines.sco2.fluid_per_second) > 1e-9: errs.append("recuperated heater output != turbine intake")
+
 if amt(hd, 'out', "ipp-sco2-hot") >= amt(hw, 'out', "ipp-sco2-hot"): errs.append("direct feed must yield less hot CO2")
-turb_mw = CF.turbines.sco2.fluid_per_second * H_MJ * CF.turbines.sco2.effectivity
-turb_mw_direct = amt(hd, 'out', "ipp-sco2-hot") * H_MJ * CF.turbines.sco2.effectivity
-comp_mw, cool_mw = CPc.power_mw, CLc.power_mw
-net = turb_mw - comp_mw - cool_mw - SEc.power_mw - CHc.power_kw / 1000 - RCc.power_kw / 1000
-eff_w, eff_d = turb_mw / added_w, turb_mw_direct / added_d
-print("CO2 plant: %.0f MW of sodium heat -> %.0f MW gross (%.0f%% with recuperator), %.0f MW gross without (%.0f%%); heat per electric MW x%.2f without; own use %.1f MW, net %.1f MW" %
-      (added_w, turb_mw, eff_w * 100, turb_mw_direct, eff_d * 100, eff_w / eff_d, comp_mw + cool_mw + SEc.power_mw + CHc.power_kw / 1000 + RCc.power_kw / 1000, net))
+# per heater: the hot CO2 it makes, turned into electricity by turbines of the configured effectivity
+gross_w = amt(hw, 'out', "ipp-sco2-hot") * H_MJ * CF.turbines.sco2.effectivity
+gross_d = amt(hd, 'out', "ipp-sco2-hot") * H_MJ * CF.turbines.sco2.effectivity
+eff_w, eff_d = gross_w / added_w, gross_d / added_d
+ref = D.reference
+print("CO2 cycle: %.0f MW of sodium heat per heater -> %.0f MW gross with a recuperator (%.0f%%), %.0f MW without (%.0f%%): heat per electric MW x%.2f without" %
+      (added_w, gross_w, eff_w * 100, gross_d, eff_d * 100, eff_w / eff_d))
 if eff_w / eff_d < 1.5: errs.append("removing the recuperator must substantially increase the heat demand (x%.2f)" % (eff_w / eff_d))
-if not 0.4 <= eff_w <= 0.6: errs.append("rated efficiency should be around 50%%, is %.0f%%" % (eff_w * 100))
+if not 0.6 <= eff_w <= 0.9: errs.append("rated cycle efficiency should be in the region the 2.5 GW reference plant needs (60-90%%), is %.0f%%" % (eff_w * 100))
+
 t3_eff = steam_mw / heat_mw   # tier 3: steam energy per primary heat (the turbine train then converts it 1:1)
 if eff_w <= t3_eff: errs.append("tier 4 must beat the tier 3 cycle efficiency (%.0f%% vs %.0f%%)" % (eff_w * 100, t3_eff * 100))
 rcp = recipes["ipp-sco2-recuperation"]
@@ -727,7 +729,7 @@ returned = amt(rcp, 'out', "ipp-sco2-warm") * R_MJ
 exhaust_heat = amt(rcp, 'in', "ipp-sco2-exhaust") * (1 - CF.turbines.sco2.effectivity) * H_MJ
 if returned > exhaust_heat + 1e-9: errs.append("recuperator returns %.1f MW, the exhaust only holds %.1f MW" % (returned, exhaust_heat))
 for rn_, a, b in (("ipp-sco2-compression", "ipp-co2", "ipp-sco2"), ("ipp-sco2-cooling", "ipp-sco2-exhaust", "ipp-co2")):
-    if amt(recipes[rn_], 'in', a) != amt(recipes[rn_], 'out', b) or amt(recipes[rn_], 'in', a) != CF.turbines.sco2.fluid_per_second: errs.append(rn_ + ": CO2 flow != turbine flow")
+    if amt(recipes[rn_], 'in', a) != amt(recipes[rn_], 'out', b) or amt(recipes[rn_], 'in', a) != RCc.co2_per_second: errs.append(rn_ + ": CO2 flow != recuperator flow")
 print("recuperator: returns %.0f of the %.0f MW the exhaust holds (%.0f%%)" % (returned, exhaust_heat, returned / exhaust_heat * 100))
 if tb.max_fluid_usage is not None and abs(tb.max_fluid_usage * 60 - CF.turbines.sco2.fluid_per_second) > 1e-6: errs.append("turbine max fluid usage != config")
 if tb.burns_fluid is not True: errs.append("CO2 turbine must burn hot CO2 as fuel")
@@ -747,6 +749,49 @@ if raw["storage-tank"]["ipp-hot-fluid-tank"].fluid_box.volume != CF.hot_tank.cap
 # the exchanger / heater / cooler / compressor need grid power: the loop stops without it (decay heat then needs the startup bank)
 for n_ in ("ipp-intermediate-sodium-exchanger", "ipp-sodium-co2-heater", "ipp-sco2-compressor", "ipp-recuperator", "ipp-sco2-cooler", "ipp-sodium-electrolyzer", "ipp-shielded-fuel-fabricator"):
     if am[n_].energy_source.type != "electric" or am[n_].energy_source.drain is None: errs.append(n_ + ": needs an electric source with an idle drain")
+
+# --- the reference plant (config.reference_plant, default a 2x2 array): the ratios the plant is designed around
+print("reference plant: %dx%d cores of %dx%d tiles = %.0f MW of heat; %.0f circulation units, %.0f exchangers, %.0f heaters, %.0f turbines, %.0f compressors, %.0f recuperators, %.0f coolers; %.0f MW gross, %.1f MW own use, %.1f MW net" %
+      (CF.reference_plant.cores_x, CF.reference_plant.cores_y, FBc.size, FBc.size, ref.heat_mw, ref.circulation_units, ref.exchangers, ref.heaters, ref.turbines, ref.compressors, ref.recuperators, ref.coolers, ref.gross_mw, ref.own_mw, ref.net_mw))
+if CF.reference_plant.cores_x == 2 and CF.reference_plant.cores_y == 2 and FBc.power_mw == 300 and FBc.neighbour_bonus == 1:
+    if ref.heat_mw != 3600: errs.append("a 2x2 array of 300 MW cores with +100%% per neighbour is 3600 MW (got %s)" % ref.heat_mw)
+    for k_, want_ in (("circulation_units", 48), ("exchangers", 24), ("heaters", 24), ("turbines", 40), ("compressors", 36), ("recuperators", 36), ("coolers", 36)):
+        if abs(ref[k_] - want_) > 1e-9: errs.append("reference plant needs %s %s, the design says %d" % (ref[k_], k_, want_))
+    if abs(ref.net_mw - 2500) > 12.5: errs.append("reference plant net output %.1f MW, the design says 2500 MW (+-0.5%%)" % ref.net_mw)
+# every flow in the plant is balanced: the sodium and CO2 volumes the buildings take add up exactly
+if abs(ref.circulation_units * D.SODIUM_FLOW - ref.exchangers * SEc.hot_primary_per_second) > 1e-6: errs.append("circulation units do not feed the exchangers exactly")
+if abs(ref.heaters * CHc.sodium_per_second - ref.exchangers * SEc.secondary_per_second) > 1e-6: errs.append("heaters do not take the exchangers' sodium exactly")
+if abs(ref.turbines * CF.turbines.sco2.fluid_per_second - ref.heaters * CHc.recuperated_co2_per_second) > 1e-6: errs.append("turbines do not take the heaters' hot CO2 exactly")
+if abs(ref.compressors * CPc.co2_per_second - ref.turbines * CF.turbines.sco2.fluid_per_second) > 1e-6: errs.append("compressors do not move the turbines' CO2 exactly")
+# fast-breeder core footprint and geometry follow config.fast_breeder.size
+S_ = FBc.size
+sb = fbr.selection_box
+if (sb[2][1] - sb[1][1], sb[2][2] - sb[1][2]) != (S_, S_) or S_ % 2 == 0: errs.append("breeder core selection box is not size x size (odd)")
+cb = fbr.collision_box
+if abs((cb[2][1] - cb[1][1]) - (S_ - 0.6)) > 1e-9: errs.append("breeder core collision box should be the selection box minus 0.3 tiles per side")
+hc = fbr.heat_buffer.connections
+if len(hc) != 4 * S_ or len(hc) > 32: errs.append("breeder core heat connections: %d (want one per tile of side, at most 32)" % len(hc))
+edge_ = (S_ - 1) / 2
+seen_ = set()
+for i_ in range(1, len(hc) + 1):
+    c_ = hc[i_]; x_, y_, d_ = c_.position[1], c_.position[2], c_.direction
+    if not isinstance(d_, (int, float)) or d_ not in (0, 4, 8, 12): errs.append("heat connection direction must be an unsigned integer 0/4/8/12 (the engine rejects strings), got %r" % (d_,)); continue
+    want_edge = {0: y_ == -edge_, 8: y_ == edge_, 4: x_ == edge_, 12: x_ == -edge_}[int(d_)]
+    if not want_edge or max(abs(x_), abs(y_)) > edge_: errs.append("heat connection (%s,%s,%s) is not on the edge of a %dx%d core" % (x_, y_, d_, S_, S_))
+    if (x_, y_, d_) in seen_: errs.append("duplicate heat connection")
+    seen_.add((x_, y_, d_))
+for k_ in ("connection_patches_connected", "connection_patches_disconnected", "heat_connection_patches_connected", "heat_connection_patches_disconnected"):
+    if fbr[k_] is not None: errs.append("%s must be dropped: its variations are per vanilla connection" % k_)
+nc = fbr.neighbour_connectable.connections
+for i_ in range(1, len(nc) + 1):
+    px_, py_ = nc[i_].location.position[1], nc[i_].location.position[2]
+    if max(abs(px_), abs(py_)) > S_ / 2 + 1e-9 or (abs(px_) != S_ / 2 and abs(py_) != S_ / 2): errs.append("neighbour point (%s,%s) is not on the edge of the core" % (px_, py_))
+if fbr.circuit_connector is not None:
+    for cc_ in fbr.circuit_connector.values():
+        for grp_ in cc_.points.values():
+            for pt_ in grp_.values():
+                if max(abs(pt_[1]), abs(pt_[2])) > S_ / 2 + 1e-9: errs.append("circuit connector point is outside the core")
+if raw.reactor["nuclear-reactor"].selection_box[2][1] != 2.5: errs.append("the vanilla reactor must stay 5x5")
 
 # --- sodium: two loops that cannot be mixed up; coolant manufacture; chlorine has a way out the moment sodium unlocks
 for e_ in ("ipp-primary-sodium-electrolysis", "ipp-secondary-sodium-electrolysis"):
@@ -784,9 +829,10 @@ for f in ("ipp-chlorine", "ipp-primary-sodium", "ipp-primary-sodium-hot", "ipp-s
 if "ipp-co2" not in allowed or "ipp-sco2" in allowed or "ipp-sco2-hot" in allowed: errs.append("only CO2 can be vented")
 if unlocked["ipp-vent-co2"][0] != "ipp-sodium-coolant-production": errs.append("CO2 vent unlocked with the kiln")
 # initial coolant filling: what it takes to fill the plant once (nothing is consumed afterwards: every sodium loop recipe is a closed loop)
-loops_fill = 3 * (3 * D.SODIUM_FLOW * 2) + 2 * 3 * SEc.hot_primary_per_second * 2   # circulation boxes + exchanger boxes, rough lower bound
+# working inventory of the reference plant: one second of flow in each sodium port of every machine (a lower bound: pipes and tanks add to it)
+loops_fill = ref.circulation_units * 2 * D.SODIUM_FLOW + ref.exchangers * 4 * SEc.hot_primary_per_second + ref.heaters * 2 * CHc.sodium_per_second
 fill_salt = loops_fill / ELc.sodium * ELc.salt
-print("sodium: filling the machines alone takes >= %.0f units = %.0f dry salt = %.0f brine; one electrolyzer makes %.0f sodium/s" % (loops_fill, fill_salt, fill_salt / SCc4.salt_out * SCc4.salt_brine, ELc.sodium / ELc.time_s))
+print("sodium: filling the reference plant's machines alone takes >= %.0f units = %.0f dry salt = %.0f brine; one electrolyzer makes %.0f sodium/s" % (loops_fill, fill_salt, fill_salt / SCc4.salt_out * SCc4.salt_brine, ELc.sodium / ELc.time_s))
 if any(amt(recipes[r_], 'in', f_) != amt(recipes[r_], 'out', f2_) for r_, f_, f2_ in (("ipp-sodium-heat-exchange", "ipp-primary-sodium-hot", "ipp-primary-sodium"), ("ipp-co2-heating-direct", "ipp-secondary-sodium-hot", "ipp-secondary-sodium"))): errs.append("routine coolant consumption must be zero")
 
 # --- fuel cycle recipes follow config, nothing can be bred out of nothing
@@ -872,6 +918,19 @@ for _n in ("ipp-mox-assembly", "ipp-starter-assembly"):
 if _params(_loc[("fluid-description", "ipp-sco2-hot")]) > _npar(raw.fluid["ipp-sco2-hot"].localised_description): errs.append("locale: fluid-description.ipp-sco2-hot parameters")
 print("locale checked: %d keys" % len(_loc))
 
+
+# ---- every `direction` in an ipp-* prototype is an unsigned integer (the engine rejects "north" etc.) ----
+def _walk_dirs(tbl, path, depth=0):
+    if depth > 14 or not hasattr(tbl, "items"): return
+    for k_, v_ in tbl.items():
+        if k_ == "direction" and not isinstance(v_, (int, float)): errs.append("%s.direction is %r, must be a number (defines.direction)" % (path, v_))
+        if hasattr(v_, "items"): _walk_dirs(v_, path + "." + str(k_), depth + 1)
+for _typ in list(raw.keys()):
+    for _n in raw[_typ].keys():
+        if isinstance(_n, str) and _n.startswith("ipp-"): _walk_dirs(raw[_typ][_n], _typ + "." + _n)
+print("direction types checked")
+
+
 # ---- every property name must exist in the 2.1 prototype API (skipped when prototype-api.json is not next to the mod) ----
 import json
 API = os.path.join(os.path.dirname(MOD), "prototype-api.json")
@@ -931,6 +990,37 @@ if os.path.exists(API):
                         for k in keys(e):
                             if k not in allowed: errs.append("recipe %s %s[%d]: '%s' is not a %s%sPrototype property" % (pname, arr_name, i, k, kind, base))
     if skipped: print("API name check: no API entry for", sorted(skipped))
+
+    # ---- top-level property values of ipp-* prototypes match the API's primitive types (integers must be whole numbers etc.) ----
+    _INT = {"uint8", "uint16", "uint32", "uint64", "int8", "int16", "int32", "int64"}
+    _NUM = _INT | {"float", "double", "FluidAmount"} if False else _INT | {"float", "double"}
+    def _all_props(t_):
+        out_, seen_ = {}, set()
+        while t_ and t_ in defs_by_name and t_ not in seen_:
+            seen_.add(t_)
+            for p_ in defs_by_name[t_].get("properties", []): out_.setdefault(p_["name"], p_)
+            t_ = defs_by_name[t_].get("parent")
+        return out_
+    _bad = 0
+    for _typ in list(raw.keys()):
+        if _typ not in defs_by_name: continue
+        _props = _all_props(_typ)
+        for _n in raw[_typ].keys():
+            if not (isinstance(_n, str) and _n.startswith("ipp-")): continue
+            for _k, _v in raw[_typ][_n].items():
+                _pt = _props.get(_k, {}).get("type")
+                if not isinstance(_pt, str): continue
+                _where = "%s.%s.%s" % (_typ, _n, _k)
+                if _pt in _INT:
+                    if isinstance(_v, bool) or not isinstance(_v, (int, float)) or _v != int(_v) or (_pt.startswith("uint") and _v < 0): errs.append("%s must be a whole number (%s), got %r" % (_where, _pt, _v))
+                elif _pt in ("float", "double"):
+                    if isinstance(_v, bool) or not isinstance(_v, (int, float)): errs.append("%s must be a number, got %r" % (_where, _v))
+                elif _pt == "bool":
+                    if not isinstance(_v, bool): errs.append("%s must be a boolean, got %r" % (_where, _v))
+                elif _pt == "string":
+                    if not isinstance(_v, str): errs.append("%s must be a string, got %r" % (_where, _v))
+    print("primitive property types checked")
+
     print("API name check done")
 print("PROBLEMS:" if errs else "ALL CHECKS PASSED")
 for e in errs: print(" -", e)

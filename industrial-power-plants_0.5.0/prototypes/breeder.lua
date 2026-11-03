@@ -85,10 +85,52 @@ do
   r.heat_buffer.max_temperature = FB.max_temperature_c
   r.heat_buffer.specific_heat = unit(FB.specific_heat_mj, "MJ")
   r.temperature_to_suppress_energy_icons = FB.warning_temperature_c
-  U.restyle(r.picture, 1, core_tint)
-  if r.lower_layer_picture then U.restyle(r.lower_layer_picture, 1, core_tint) end
+
+  -- Footprint: config fast_breeder.size (odd, 3..7). The vanilla core is 5x5, so everything drawn or placed relative to its
+  -- edge is rescaled by size / 5.
+  local SZ, half = FB.size, FB.size / 2
+  local f = SZ / 5
+  r.collision_box = { { -half + 0.3, -half + 0.3 }, { half - 0.3, half - 0.3 } }
+  r.selection_box = { { -half, -half }, { half, half } }
+  -- Neighbour points: the vanilla points (one per side, on the edge) pushed out to the new edge, so two aligned cores still
+  -- meet exactly and the connection patches keep their order.
+  local function scaled(p)
+    if p[1] ~= nil then return { p[1] * f, p[2] * f } end
+    return { x = p.x * f, y = p.y * f }
+  end
+  for _, c in ipairs(r.neighbour_connectable.connections) do c.location.position = scaled(c.location.position) end
+  -- Heat connections: one on every tile of every side (a heat pipe or a circulation unit can be set against any tile). The
+  -- vanilla connection patches are drawn per vanilla connection and would not match, so they are dropped (cosmetic only).
+  do
+    -- Directions are unsigned integers in a prototype (defines.direction: north 0, east 4, south 8, west 12)
+    local dir = (defines and defines.direction) or { north = 0, east = 4, south = 8, west = 12 }
+    local edge = (SZ - 1) / 2
+    local conns = {}
+    for i = -edge, edge do conns[#conns + 1] = { position = { i, -edge }, direction = dir.north } end
+    for i = -edge, edge do conns[#conns + 1] = { position = { edge, i }, direction = dir.east } end
+    for i = -edge, edge do conns[#conns + 1] = { position = { i, edge }, direction = dir.south } end
+    for i = -edge, edge do conns[#conns + 1] = { position = { -edge, i }, direction = dir.west } end
+    r.heat_buffer.connections = conns
+    r.connection_patches_connected, r.connection_patches_disconnected = nil, nil
+    r.heat_connection_patches_connected, r.heat_connection_patches_disconnected = nil, nil
+  end
+  -- Graphics: one call over every sprite (a sprite shared between two fields is scaled once), tinted.
+  U.restyle({ r.picture, r.lower_layer_picture, r.heat_lower_layer_picture, r.working_light_picture }, f, core_tint)
+  if r.light and type(r.light.size) == "number" then r.light.size = r.light.size * f end
+  if r.heating_radius then r.heating_radius = r.heating_radius * f end
+  -- circuit connector sits at a corner of the vanilla core: move it out with the edge
+  for _, cc in ipairs(r.circuit_connector or {}) do
+    for _, group in pairs(cc.points or {}) do
+      for _, pt in pairs(group) do
+        if type(pt) == "table" then
+          if pt[1] ~= nil then pt[1], pt[2] = pt[1] * f, pt[2] * f
+          elseif pt.x ~= nil then pt.x, pt.y = pt.x * f, pt.y * f end
+        end
+      end
+    end
+  end
   local desc = { D.fmt(FB.power_mw), D.fmt(FB.warning_temperature_c), D.fmt(FB.meltdown_temperature_c), D.fmt(FB.meltdown_grace_s),
-                 D.fmt(FB.rod_speed_pct_per_second), D.fmt(FB.scram_speed_pct_per_second), D.fmt(FB.scram_lockout_s / 60) }
+                 D.fmt(FB.rod_speed_pct_per_second), D.fmt(FB.scram_speed_pct_per_second), D.fmt(FB.scram_lockout_s / 60), D.fmt(SZ) }
   r.localised_description = { "entity-description." .. D.FBR, table.unpack(desc) }
   data:extend { r, item_for(D.FBR, "nuclear-reactor", core_tint, "w-a", nil, desc) }
 end
@@ -118,7 +160,8 @@ do
   b.fluid_box.filter, b.fluid_box.volume = "ipp-primary-sodium", v
   b.output_fluid_box.filter, b.output_fluid_box.volume = "ipp-primary-sodium-hot", v
   if b.pictures then U.restyle(b.pictures, 1, tint) end
-  local desc = { D.fmt(SU.power_mw), D.fmt(D.SODIUM_FLOW), D.fmt(SU.target_c), D.fmt(SU.min_working_c) }
+  local desc = { D.fmt(SU.power_mw), D.fmt(D.SODIUM_FLOW), D.fmt(SU.target_c), D.fmt(SU.min_working_c),
+                 D.fmt(C.sodium_exchanger.hot_primary_per_second / D.SODIUM_FLOW) }
   b.localised_description = { "entity-description." .. name, table.unpack(desc) }
   data:extend { b, item_for(name, "heat-exchanger", tint, "w-b", nil, desc) }
 end

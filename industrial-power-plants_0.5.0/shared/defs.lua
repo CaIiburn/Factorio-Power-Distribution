@@ -166,6 +166,10 @@ do
       "scram_speed_pct_per_second", "rod_exponent", "decay_rise_s", "decay_fall_s", "warning_temperature_c",
       "meltdown_temperature_c", "meltdown_grace_s" } do positive(fb[k], "fast_breeder." .. k) end
   whole(fb.fuel_slots, 1, "fast_breeder.fuel_slots"); whole(fb.spent_slots, 1, "fast_breeder.spent_slots")
+  whole(fb.size, 3, "fast_breeder.size", true)
+  if fb.size > 7 then
+    error("industrial-power-plants config.lua: fast_breeder.size must be 7 or less (a core has 4 heat connections per tile of side, the engine allows 32)")
+  end
   if type(fb.scram_lockout_s) ~= "number" or fb.scram_lockout_s < 0 then
     error("industrial-power-plants config.lua: fast_breeder.scram_lockout_s must be a number >= 0")
   end
@@ -189,6 +193,7 @@ do
   if su.hot_fluid_max_c < su.target_c then error("industrial-power-plants config.lua: sodium_unit.hot_fluid_max_c must be >= target_c") end
 end
 check("heat_pipe_2", { "max_temperature_c", "health" })
+check("reference_plant", { "cores_x", "cores_y" })
 check("sodium_exchanger", { "hot_primary_per_second", "cool_primary_per_second", "secondary_per_second", "power_mw", "idle_drain_kw", "health" })
 check("co2_heater", { "sodium_per_second", "recuperated_co2_per_second", "direct_co2_per_second", "power_kw", "idle_drain_kw", "health" })
 check("sco2_compressor", { "co2_per_second", "power_mw", "idle_drain_kw", "health" })
@@ -235,6 +240,36 @@ D.fuel = {
 D.fuel.fissile_out = bf.core_reprocessing.pbm + D.fuel.blankets_per_mox * bf.blanket_reprocessing.pbm
 D.fuel.breeding_ratio = (D.fuel.fissile_out - bf.mox.pbm + bf.mox.burnt_fissile) / bf.mox.burnt_fissile
 D.fuel.core_only_ratio = (bf.core_reprocessing.pbm - bf.mox.pbm + bf.mox.burnt_fissile) / bf.mox.burnt_fissile
+
+-- Reference plant: an array of breeder cores (config.reference_plant) with every building counted from the ratings. Fractional
+-- counts mean the ratings do not fit together (the soft checks warn). A core's neighbour bonus counts per edge shared with another core.
+local rp = C.reference_plant
+local edges = rp.cores_x * (rp.cores_y - 1) + rp.cores_y * (rp.cores_x - 1)
+local cores = rp.cores_x * rp.cores_y
+local heat_mw = (cores + 2 * edges * C.fast_breeder.neighbour_bonus) * C.fast_breeder.power_mw
+local heaters = heat_mw / (C.co2_heater.sodium_per_second * D.SODIUM_UNIT_KJ / 1000)
+local hot_co2 = heaters * C.co2_heater.recuperated_co2_per_second
+local tcfg = C.turbines.sco2
+local ref = {
+  cores = cores, heat_mw = heat_mw,
+  circulation_units = heat_mw / C.sodium_unit.power_mw,
+  exchangers = heat_mw / (C.sodium_exchanger.hot_primary_per_second * D.SODIUM_UNIT_KJ / 1000),
+  heaters = heaters,
+  turbines = hot_co2 / tcfg.fluid_per_second,
+  compressors = hot_co2 / C.sco2_compressor.co2_per_second,
+  recuperators = hot_co2 / C.recuperator.co2_per_second,
+  coolers = hot_co2 / C.sco2_cooler.exhaust_per_second,
+  hot_co2_per_second = hot_co2,
+}
+ref.gross_mw = hot_co2 * C.fluids.sco2_hot_mj * tcfg.effectivity
+-- own use at full load: working power + idle drain of every machine
+ref.own_mw = ref.compressors * (C.sco2_compressor.power_mw + C.sco2_compressor.idle_drain_kw / 1000)
+  + ref.coolers * (C.sco2_cooler.power_mw + C.sco2_cooler.idle_drain_kw / 1000)
+  + ref.recuperators * (C.recuperator.power_kw + C.recuperator.idle_drain_kw) / 1000
+  + ref.exchangers * (C.sodium_exchanger.power_mw + C.sodium_exchanger.idle_drain_kw / 1000)
+  + ref.heaters * (C.co2_heater.power_kw + C.co2_heater.idle_drain_kw) / 1000
+ref.net_mw = ref.gross_mw - ref.own_mw
+D.reference = ref
 
 -- Derived primary-loop numbers: one unit of primary water carries 1 kJ per degC (heat capacity of both primary fluids).
 D.PRIMARY_UNIT_KJ = C.primary_unit.target_c - 15                       -- kJ per unit of hot primary water
@@ -307,12 +342,12 @@ if log then
   local fb = C.breeder_fuel
   if se.hot_primary_per_second ~= se.cool_primary_per_second then warn("sodium_exchanger: primary loop would gain or lose sodium (hot_primary != cool_primary)") end
   if ch.sodium_per_second ~= se.secondary_per_second then warn("co2_heater.sodium_per_second differs from sodium_exchanger.secondary_per_second (secondary loop would gain or lose sodium)") end
-  if math.abs(se.hot_primary_per_second - 3 * D.SODIUM_FLOW) > 1e-6 and math.abs(se.hot_primary_per_second % D.SODIUM_FLOW) > 1e-6 then
+  local units_per_exchanger = se.hot_primary_per_second / D.SODIUM_FLOW
+  if math.abs(units_per_exchanger - math.floor(units_per_exchanger + 0.5)) > 1e-6 then
     warn(string.format("sodium_exchanger takes %s hot primary sodium/s, not a whole number of circulation units (one moves %.1f/s)", se.hot_primary_per_second, D.SODIUM_FLOW))
   end
-  if ch.recuperated_co2_per_second ~= tb.per_second then warn("co2_heater.recuperated_co2_per_second differs from the CO2 turbine intake (" .. tb.per_second .. ")") end
-  for _, pair in ipairs { { "sco2_compressor.co2_per_second", cp.co2_per_second }, { "recuperator.co2_per_second", rc_.co2_per_second }, { "sco2_cooler.exhaust_per_second", cl.exhaust_per_second } } do
-    if pair[2] ~= tb.per_second then warn(pair[1] .. " differs from the CO2 turbine flow (" .. tb.per_second .. ")") end
+  if cp.co2_per_second ~= rc_.co2_per_second or cp.co2_per_second ~= cl.exhaust_per_second then
+    warn("sco2_compressor, recuperator and sco2_cooler should handle the same CO2 flow")
   end
   local heat_in = se.secondary_per_second * D.SODIUM_UNIT_KJ / 1000
   local heat_rec = ch.recuperated_co2_per_second * (D.SCO2_HOT_MJ - D.SCO2_PREHEAT_MJ)
@@ -323,6 +358,12 @@ if log then
   local exhaust_heat = rc_.co2_per_second * (1 - tb.effectivity) * D.SCO2_HOT_MJ
   if rc_.co2_per_second * D.SCO2_PREHEAT_MJ > exhaust_heat + 1e-9 then
     warn(string.format("recuperator returns %.1f MW but the turbine exhaust only holds %.1f MW (energy created from nothing)", rc_.co2_per_second * D.SCO2_PREHEAT_MJ, exhaust_heat))
+  end
+  local ref = D.reference
+  for _, k in ipairs { "circulation_units", "exchangers", "heaters", "turbines", "compressors", "recuperators", "coolers" } do
+    if math.abs(ref[k] - math.floor(ref[k] + 0.5)) > 1e-6 then
+      warn(string.format("reference plant (%dx%d cores, %.0f MW of heat) needs %.2f %s: not a whole number", C.reference_plant.cores_x, C.reference_plant.cores_y, ref.heat_mw, ref[k], k))
+    end
   end
   if C.heat_pipe_2.max_temperature_c >= C.fast_breeder.warning_temperature_c then
     warn("heat_pipe_2.max_temperature_c should stay below the breeder core's warning temperature")

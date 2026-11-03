@@ -21,8 +21,8 @@ build / remove event once for all of them (the engine keeps one handler per even
   Replaces the vanilla nuclear reactor. `/ipp-reactor-debug` prints core state.
 * **Tier 4, fast breeder with supercritical-CO2 generation** (`docs/FAST_BREEDER.md`): sodium-cooled fast-breeder core (MOX or
   enriched-uranium starter assemblies, same rods / SCRAM / meltdown as Tier 3), blanket irradiation channels that breed depleted
-  uranium at the core's real fission power, primary and secondary sodium loops, a recuperated CO2 cycle (50 % efficient; 30 %
-  without the recuperator, which keeps working), fuel fabricator, sodium electrolyzer with brine / salt / kiln chemistry and chlorine
+  uranium at the core's real fission power, primary and secondary sodium loops, a recuperated CO2 cycle (80 % efficient; 40 %
+  without the recuperator, which keeps working; a 2x2 array of 7x7 cores gives 2.5 GW net), fuel fabricator, sodium electrolyzer with brine / salt / kiln chemistry and chlorine
   routes, hot-fluid tank. Reuses the Tier 3 reprocessing plant, spent-fuel pool, casks and vitrifier. `/ipp-breeder-debug`
   prints channel state.
 * Startup-energy bank (200 MJ). Techs: Industrial steam power, Combined-cycle gas power, Startup-energy storage, Pressurized-water nuclear power,

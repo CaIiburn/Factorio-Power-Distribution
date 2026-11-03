@@ -63,11 +63,13 @@ end
 
 -- ---- breeder world ----
 CORE_SEQ = 100
+CORE_HALF = D.config.fast_breeder.size / 2          -- the core's half width follows config.fast_breeder.size
+TOUCH = CORE_HALF + 1.5                               -- centre distance of a 3x3 channel touching a core
 function mk_core(x, y, opts)
   opts = opts or {}
   CORE_SEQ = CORE_SEQ + 1
   local c = { name = D.FBR, valid = true, unit_number = CORE_SEQ, surface = SURF, neighbour_bonus = opts.bonus or 0,
-    position = {x=x, y=y}, selection_box = { left_top = {x=x-2.5, y=y-2.5}, right_bottom = {x=x+2.5, y=y+2.5} },
+    position = {x=x, y=y}, selection_box = { left_top = {x=x-CORE_HALF, y=y-CORE_HALF}, right_bottom = {x=x+CORE_HALF, y=y+CORE_HALF} },
     burner = { currently_burning = (opts.fuel ~= false) and true or nil, inventory = { is_empty = function() return opts.fuel == false end } } }
   storage.ipp_reactors = storage.ipp_reactors or {}
   storage.ipp_reactors[c.unit_number] = { entity = c, duty = opts.duty or 1.0 }
@@ -96,6 +98,7 @@ def check(name, cond, extra=""):
     if not cond: fails.append(name)
 D = g.D
 ch_entry = g.ch_entry
+T_ = g.TOUCH
 CF = D.config
 
 print("event registration: the whole mod, once per event (the engine keeps one handler per event)")
@@ -138,7 +141,7 @@ h, p = setup(contents={"ipp-sco2-warm": 50.0}); g.HEAT.update(h)
 check("preheated CO2 at the inlet -> recuperated recipe", h.recipe == WARM and h.custom_status.diode == "green", h.recipe)
 h, p = setup(contents={"ipp-sco2": 50.0}); g.HEAT.update(h)
 check("cold compressed CO2 at the inlet (no recuperator) -> direct recipe", h.recipe == DIRECT and h.custom_status.diode == "yellow", h.recipe)
-check("the direct status says how much more heat it needs", str(h.custom_status.label[1]) == "ipp.heater-direct" and str(h.custom_status.label[2]) == "67", list(h.custom_status.label.values()))
+check("the direct status says how much more heat it needs", str(h.custom_status.label[1]) == "ipp.heater-direct" and str(h.custom_status.label[2]) == str(round(CF.fluids.sco2_recuperated_mj / (CF.fluids.sco2_hot_mj - CF.fluids.sco2_recuperated_mj) * 100)), list(h.custom_status.label.values()))
 p.contents = lua.table_from({"ipp-sco2-warm": 20.0}); g.HEAT.update(h)
 check("the recuperator is added later: the heater switches over by itself", h.recipe == WARM)
 p.contents = lua.table_from({"ipp-sco2": 20.0}); g.HEAT.update(h)
@@ -172,12 +175,12 @@ T, E = B.channel_time_s, B.irradiation_j
 def duty_of(c): return ch_entry(c).duty
 lua.execute("SURF.ents = {}; storage.ipp_reactors = {}; storage.ipp_channels = {}")
 core = g.mk_core(0, 0, lua.table(duty=1.0, bonus=0))
-c1 = g.mk_channel(4, 0)          # touches the core's east edge (gap 0.0)
+c1 = g.mk_channel(T_, 0)          # touches the core's east edge (gap 0.0)
 g.BRD.assign()
 want = T * B.rated_w / E
 check("one channel on a full-power core: duty = channel time x power / irradiation energy", abs(duty_of(c1) - want) < 1e-9 and 0 < want < 1, (duty_of(c1), want))
 check("status is green with the duty shown", c1.custom_status.diode == "green" and str(c1.custom_status.label[1]) == "ipp.channel-flux")
-c2 = g.mk_channel(-4, 0); c3 = g.mk_channel(0, 4)
+c2 = g.mk_channel(-T_, 0); c3 = g.mk_channel(0, T_)
 g.BRD.assign()
 check("three loaded channels share the flux equally", all(abs(duty_of(c) - want / 3) < 1e-9 for c in (c1, c2, c3)), [duty_of(c) for c in (c1, c2, c3)])
 check("... so the core's total breeding rate does not depend on the number of channels",
@@ -200,18 +203,18 @@ core.burner = lua.table(currently_burning=True, inventory=lua.table(is_empty=lam
 print("blanket channels: a strong core outruns its channels (neighbour bonus), more channels fix it")
 lua.execute("SURF.ents = {}; storage.ipp_reactors = {}; storage.ipp_channels = {}")
 core = g.mk_core(0, 0, lua.table(duty=1.0, bonus=2))
-c1 = g.mk_channel(4, 0)
+c1 = g.mk_channel(T_, 0)
 g.BRD.assign()
 check("x3 core and one channel: duty capped at 1 (flux wasted), status warns", duty_of(c1) == 1 and c1.custom_status.diode == "yellow" and str(c1.custom_status.label[1]) == "ipp.channel-flux-surplus")
-cs = [c1, g.mk_channel(-4, 0), g.mk_channel(0, 4)]
+cs = [c1, g.mk_channel(-T_, 0), g.mk_channel(0, T_)]
 g.BRD.assign()
 check("x3 core and three channels: all below the cap", all(duty_of(c) < 1 for c in cs), [duty_of(c) for c in cs])
 check("... and together they use the full flux", abs(sum(duty_of(c) for c in cs) - T * 3 * B.rated_w / E) < 1e-9)
 
 print("blanket channels: which core a channel belongs to")
 lua.execute("SURF.ents = {}; storage.ipp_reactors = {}; storage.ipp_channels = {}")
-a = g.mk_core(0, 0, lua.table(duty=1.0)); b = g.mk_core(30, 0, lua.table(duty=0.5))
-near_a = g.mk_channel(4, 0); near_b = g.mk_channel(26, 0); far = g.mk_channel(15, 0)
+a = g.mk_core(0, 0, lua.table(duty=1.0)); b = g.mk_core(40, 0, lua.table(duty=0.5))
+near_a = g.mk_channel(T_, 0); near_b = g.mk_channel(40 - T_, 0); far = g.mk_channel(20, 0)
 g.BRD.assign()
 check("each channel takes the core it touches", ch_entry(near_a).core == a.unit_number and ch_entry(near_b).core == b.unit_number)
 check("a channel out of reach has no core, duty 0, red status", ch_entry(far).core is None and duty_of(far) == 0 and far.custom_status.diode == "red")
@@ -219,14 +222,14 @@ lua.execute("storage.ipp_reactors = {}")
 g.BRD.assign()
 check("without any core every channel idles", all(duty_of(c) == 0 for c in (near_a, near_b)))
 pwr = g.mk_core(0, 0, lua.table(duty=1.0))
-other = g.mk_core(50, 50, lua.table(duty=1.0)); other.name = D.REACTOR
+other = g.mk_core(60, 60, lua.table(duty=1.0)); other.name = D.REACTOR
 g.storage.ipp_reactors[other.unit_number].entity = other
 g.BRD.assign()
 check("a pressurized-water core is never a breeder core", ch_entry(near_b).core is None)
 
 print("blanket channels: the on/off duty cycle averages to the duty")
 lua.execute("SURF.ents = {}; storage.ipp_reactors = {}; storage.ipp_channels = {}; TICK = 0")
-core = g.mk_core(0, 0, lua.table(duty=1.0, bonus=0)); c1 = g.mk_channel(4, 0)
+core = g.mk_core(0, 0, lua.table(duty=1.0, bonus=0)); c1 = g.mk_channel(T_, 0)
 check("a new channel starts switched off", c1.disabled_by_script is True)
 g.BRD.assign()
 g.CHANNEL_UNDER_TEST = c1
